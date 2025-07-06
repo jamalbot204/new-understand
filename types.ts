@@ -32,7 +32,7 @@ export type AttachmentUploadState =
 
 export interface Attachment {
   id: string; 
-  type: 'image' | 'video'; // Simplified, can be expanded for generic files
+  type: 'image' | 'video' | 'github_repo'; // Simplified, can be expanded for generic files
   mimeType: string; // Original MIME type of the file
   name: string;
   base64Data?: string; // Pure base64 encoded content, for re-upload or fallback

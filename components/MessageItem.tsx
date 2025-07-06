@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef, memo, useCallback } from 'react'; // Added memo and useCallback
+import React, { useState, useEffect, useRef, memo } from 'react'; // Added memo
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { LightAsync as SyntaxHighlighter } from 'react-syntax-highlighter';

@@ -276,6 +276,37 @@ export function useAttachmentHandler({
     }
   }, []);
 
+  const handleGitHubUrl = useCallback(async (url: string) => {
+    const repoName = url.split('/').slice(-2).join('/');
+    const attachmentId = `github-${Date.now()}`;
+
+    const newAttachment: Attachment = {
+        id: attachmentId,
+        name: repoName,
+        mimeType: 'text/plain',
+        size: 0, // Will be updated after fetching
+        type: 'github_repo',
+        uploadState: 'reading_client', // We'll use this state to indicate "processing"
+        statusMessage: 'Fetching repository...',
+        isLoading: true,
+        // We'll store the URL in the dataUrl field for now
+        dataUrl: url,
+    };
+    
+    setSelectedFiles(prev => [...prev, newAttachment]);
+    // Here, we would normally call a service to fetch the repo content.
+    // For now, we'll just show a success message.
+    // In the next stage, we'll replace this with a call to a real service.
+    setTimeout(() => {
+        updateAttachmentState(attachmentId, {
+            uploadState: 'completed',
+            statusMessage: 'Repository ready.',
+            isLoading: false,
+        });
+        showToastCallback('GitHub repository added and ready for context.', 'success');
+    }, 2000); // Simulate network delay
+}, [updateAttachmentState, showToastCallback]);
+
 
   return {
     selectedFiles,
@@ -287,5 +318,6 @@ export function useAttachmentHandler({
     resetSelectedFiles,
     getFileProgressDisplay,
     getDisplayFileType, // Now refers to the imported utility
+    handleGitHubUrl,
   };
 }

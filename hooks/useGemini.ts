@@ -6,6 +6,7 @@ import { getFullChatResponse, generateMimicUserResponse, clearCachedChat as gemi
 import { DEFAULT_SETTINGS } from '../constants.ts';
 import { EditMessagePanelAction, EditMessagePanelDetails } from '../components/EditMessagePanel.tsx';
 import { findPrecedingUserMessageIndex, getHistoryUpToMessage } from '../services/utils.ts'; // Import helpers
+import { fetchGitHubRepoContent } from '../services/githubService.ts';
 
 // Define props for the hook
 interface UseGeminiProps {
@@ -159,6 +160,21 @@ export function useGemini({
   ) => {
     if (!currentChatSession || isLoading) return;
 
+    let finalPromptContent = promptContent;
+    if (attachments && attachments.length > 0) {
+        for (const attachment of attachments) {
+            if (attachment.type === 'github_repo') {
+                try {
+                    const repoContent = await fetchGitHubRepoContent(attachment);
+                    finalPromptContent = `${repoContent}\n\n---\n\n${finalPromptContent}`;
+                } catch (error) {
+                    console.error('Failed to fetch GitHub repository content:', error);
+                    // Optionally, show a toast to the user
+                }
+            }
+        }
+    }
+
     await rotateApiKey();
 
     requestCancelledByUserRef.current = false;
@@ -276,7 +292,7 @@ export function useGemini({
     await getFullChatResponse(
         apiKey,
         activeChatIdForThisCall,
-        finalUserMessageInputForAPI, // Current turn's content
+        { text: finalPromptContent, attachments }, // Pass the modified prompt
         currentChatSession.model,
         baseSettingsForAPICall,
         historyForGeminiSDK, // History *before* current turn
