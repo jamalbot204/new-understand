@@ -12,9 +12,9 @@ import { useChatState, useChatActions, useChatInteractionStatus } from '../conte
 import { useUIContext } from '../contexts/UIContext.tsx';
 import { useAudioContext } from '../contexts/AudioContext.tsx';
 import { MAX_WORDS_PER_TTS_SEGMENT, MESSAGE_CONTENT_SNIPPET_THRESHOLD } from '../constants.ts';
-import { 
-    SparklesIcon, PencilIcon, TrashIcon, ClipboardDocumentListIcon, 
-    ArrowPathIcon, MagnifyingGlassIcon, DocumentIcon, 
+import {
+    SparklesIcon, PencilIcon, TrashIcon, ClipboardDocumentListIcon,
+    ArrowPathIcon, MagnifyingGlassIcon, DocumentIcon,
     ArrowDownTrayIcon, EllipsisVerticalIcon, ClipboardIcon, CheckIcon, UsersIcon,
     ChevronDownIcon, ChevronRightIcon, XCircleIcon, SpeakerWaveIcon, SpeakerXMarkIcon,
     PauseIcon, ChevronUpIcon, BookOpenIcon, ChatBubblePlusIcon, GitHubIcon
@@ -45,107 +45,71 @@ interface MessageItemProps {
   onToggleExpansion: (messageId: string, type: 'content' | 'thoughts') => void;
 }
 
-const CodeBlock: React.FC<React.PropsWithChildren<{ inline?: boolean; className?: string }>> = ({
-    inline,
-    className, 
-    children,
-  }) => {
-    const [isCodeCopied, setIsCodeCopied] = useState(false); 
-    
-    const codeString = Array.isArray(children) ? children.join('') : String(children);
-    const finalCodeString = codeString.replace(/\n$/, '');
+// ==================================================================
+// NEW & CORRECTED: Markdown Renderers
+// This object defines how to render specific markdown elements.
+// ==================================================================
+const markdownRenderers = {
+    // This function handles both inline `code` and fenced ```code blocks```
+    code({ node, inline, className, children, ...props }: any) {
+        const [isCodeCopied, setIsCodeCopied] = useState(false);
+        const codeString = String(children).replace(/\n$/, '');
 
-    const handleCopyCode = () => { 
-      navigator.clipboard.writeText(finalCodeString).then(() => {
-        setIsCodeCopied(true);
-        setTimeout(() => setIsCodeCopied(false), 2000);
-      }).catch(err => {
-        console.error('Failed to copy code: ', err);
-        alert('Failed to copy code.');
-      });
-    };
+        const handleCopyCode = () => {
+            navigator.clipboard.writeText(codeString).then(() => {
+                setIsCodeCopied(true);
+                setTimeout(() => setIsCodeCopied(false), 2000);
+            }).catch(err => {
+                console.error('Failed to copy code: ', err);
+                alert('Failed to copy code.');
+            });
+        };
+        
+        const match = /language-(\w+)/.exec(className || '');
+        const lang = match ? match[1] : 'text';
 
-    if (inline) {
-      return (
-        <code 
-          className="bg-black/30 text-indigo-300 rounded font-mono border border-white/10"
-          style={{ 
-            padding: '0.1em 0.3em', 
-            fontSize: '0.875em', 
-            margin: '0 0.05em',
-            whiteSpace: 'pre-wrap', 
-            wordBreak: 'break-all' 
-          }}
-        >
-          {children}
-        </code>
-      );
-    }
-    
-    const match = /language-([\w.-]+)/.exec(className || '');
-    const lang = match && match[1] ? match[1] : ''; 
-
-    return (
-      <div className="relative group/codeblock my-2 rounded-md overflow-hidden shadow border border-white/10 bg-[#0A0910]">
-        <div className="flex justify-start items-center px-3 py-1.5 bg-black/20">
-          <span className="text-xs text-gray-300 font-mono">
-            {lang || 'code'} 
-          </span>
-        </div>
-        {lang ? ( 
-          <SyntaxHighlighter
-            style={atomDark}
-            language={lang}
-            PreTag="div" 
-            customStyle={{ 
-                margin: 0, 
-                borderRadius: '0 0 0.375rem 0.375rem', 
-                padding: '1rem', 
-                overflowX: 'hidden', 
-                fontSize: '0.9em',
-                whiteSpace: 'pre-wrap', 
-                wordBreak: 'break-word',
-                backgroundColor: 'transparent'
-            }}
-            codeTagProps={{ 
-                style: { 
-                    fontFamily: 'inherit', 
-                    lineHeight: '1.6',
-                    whiteSpace: 'pre-wrap', 
-                    wordBreak: 'break-word' 
-                } 
-            }}
-            showLineNumbers={false}
-            wrapLines={true} 
-            lineProps={{ style: { wordBreak: 'break-word', whiteSpace: 'pre-wrap' } }} 
-          >
-            {finalCodeString}
-          </SyntaxHighlighter>
-        ) : ( 
-          <pre 
-            className="bg-transparent text-gray-200 p-4 text-sm font-mono overflow-x-hidden whitespace-pre-wrap break-words m-0 rounded-b-md" 
-          >
-            <code className={className || ''}> 
-              {finalCodeString}
+        // If it's NOT inline, it's a fenced block. Render with full syntax highlighting.
+        // If it IS inline, the `else` block will handle it.
+        return !inline && match ? (
+            <div className="relative group/codeblock my-2 rounded-md overflow-hidden shadow border border-white/10 bg-[#0A0910]">
+                <div className="flex justify-between items-center px-4 py-1.5 bg-black/20">
+                  <span className="text-xs text-gray-300 font-mono">{lang}</span>
+                  <button
+                    onClick={handleCopyCode}
+                    title={isCodeCopied ? "Copied!" : "Copy code"}
+                    aria-label={isCodeCopied ? "Copied code to clipboard" : "Copy code to clipboard"}
+                    className="p-1.5 bg-black/30 text-gray-300 hover:text-white rounded-md transition-all duration-150 opacity-0 group-hover/codeblock:opacity-100 focus:opacity-100 hover:shadow-[0_0_8px_1px_rgba(255,255,255,0.2)]"
+                  >
+                    {isCodeCopied ? <CheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4" />}
+                  </button>
+                </div>
+                <SyntaxHighlighter
+                    style={atomDark}
+                    language={lang}
+                    PreTag="div"
+                    customStyle={{ margin: 0, padding: '1rem', fontSize: '0.9em', backgroundColor: 'transparent' }}
+                >
+                    {codeString}
+                </SyntaxHighlighter>
+            </div>
+        ) : (
+            // This renders for inline `code` and for ``` blocks without a language
+            <code className="bg-black/30 text-indigo-300 rounded font-mono border border-white/10 px-1 py-0.5" {...props}>
+                {children}
             </code>
-          </pre>
-        )}
-        <button
-          onClick={handleCopyCode}
-          title={isCodeCopied ? "Copied!" : "Copy code"}
-          aria-label={isCodeCopied ? "Copied code to clipboard" : "Copy code to clipboard"}
-          className="absolute bottom-3 right-3 p-1.5 bg-black/30 text-gray-300 hover:text-white rounded-md transition-all duration-150 opacity-0 group-hover/codeblock:opacity-100 focus:opacity-100 hover:shadow-[0_0_8px_1px_rgba(255,255,255,0.2)]"
-        >
-          {isCodeCopied ? <CheckIcon className="w-4 h-4 text-green-400" /> : <ClipboardIcon className="w-4 h-4" />}
-        </button>
-      </div>
-    );
-  };
+        );
+    },
+    // This ensures paragraphs are rendered as divs, which helps with styling.
+    p(props: any) {
+        return <div {...props} />;
+    }
+};
+
 
 const DropdownMenuItem: React.FC<{
     onClick: () => void;
     icon: React.FC<{ className?: string }>;
-    label: string; 
+    label: string;
     hoverGlowClassName?: string;
     className?: string;
     disabled?: boolean;
@@ -153,16 +117,16 @@ const DropdownMenuItem: React.FC<{
     <button
       role="menuitem"
       disabled={disabled}
-      title={label} 
+      title={label}
       aria-label={label}
       className={`w-auto p-2 text-sm flex items-center justify-center rounded-md transition-all ${
-        disabled 
-          ? 'text-gray-500 cursor-not-allowed' 
+        disabled
+          ? 'text-gray-500 cursor-not-allowed'
           : `text-gray-200 ${hoverGlowClassName || 'hover:bg-white/10'} ${className || ''}`
       }`}
-      onMouseDown={() => { if (!disabled) onClick(); }} 
-      onTouchStart={() => { if (!disabled) onClick(); }} 
-      onClick={(e) => { e.preventDefault(); }} 
+      onMouseDown={() => { if (!disabled) onClick(); }}
+      onTouchStart={() => { if (!disabled) onClick(); }}
+      onClick={(e) => { e.preventDefault(); }}
     >
       <Icon className={`w-5 h-5 ${disabled ? 'text-gray-500' : ''}`} />
     </button>
@@ -186,7 +150,7 @@ const Checkbox: React.FC<{
 ));
 
 const MessageItemComponent: React.FC<MessageItemProps> = ({
-  message, 
+  message,
   canRegenerateFollowingAI,
   chatScrollContainerRef,
   highlightTerm,
@@ -211,31 +175,18 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
   const [isOptionsMenuOpen, setIsOptionsMenuOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const optionsButtonRef = useRef<HTMLButtonElement>(null);
-  
+
   const initialDropdownHorizontalClass = isUser ? 'left-0' : 'right-0';
   const [dynamicDropdownClass, setDynamicDropdownClass] = useState<string>(initialDropdownHorizontalClass);
-  
-  const markdownContentRef = useRef<HTMLDivElement>(null); 
 
-  // Multi-select state from context
+  const markdownContentRef = useRef<HTMLDivElement>(null);
+
   const { isSelectionModeActive, selectedMessageIds, toggleMessageSelection } = ui;
   const isSelected = isSelectionModeActive && selectedMessageIds.has(message.id);
-  
-  if (message.role === ChatMessageRole.SYSTEM) {
-    const isGithubMessage = message.content.includes("GitHub repository");
-    return (
-        <div className="flex justify-center items-center my-3 w-full" id={`message-item-${message.id}`}>
-            <div className="text-center text-xs text-gray-400 bg-black/25 px-4 py-1.5 rounded-full shadow-inner flex items-center gap-2">
-                {isGithubMessage && <GitHubIcon className="w-4 h-4 flex-shrink-0" />}
-                <p>{message.content}</p>
-            </div>
-        </div>
-    );
-  }
 
   let displayContent = message.content;
   let extractedThoughts: string | null = null;
-  const thoughtsMarker = "THOUGHTS:"; 
+  const thoughtsMarker = "THOUGHTS:";
 
   if (isModel && !isError && message.content) {
     const thoughtsIndex = message.content.indexOf(thoughtsMarker);
@@ -257,20 +208,21 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
   const actualMaxWords = currentChatSession?.settings?.ttsSettings?.maxWordsPerSegment ?? MAX_WORDS_PER_TTS_SEGMENT;
   const textSegmentsForTts = splitTextForTts(displayContent, actualMaxWords);
   const numExpectedTtsParts = textSegmentsForTts.length;
-  
+
   const hasAnyCachedAudio = message.cachedAudioBuffers && message.cachedAudioBuffers.some(buffer => !!buffer);
 
-  const allTtsPartsCached = hasAnyCachedAudio && 
-                           message.cachedAudioBuffers && 
-                           message.cachedAudioBuffers.length === numExpectedTtsParts && 
+  const allTtsPartsCached = hasAnyCachedAudio &&
+                           message.cachedAudioBuffers &&
+                           message.cachedAudioBuffers.length === numExpectedTtsParts &&
                            message.cachedAudioBuffers.every(buffer => !!buffer);
 
   const isLongTextContent = displayContent.trim().length > MESSAGE_CONTENT_SNIPPET_THRESHOLD;
-  const contentToRender = (isLongTextContent && !isContentExpanded) 
-    ? displayContent.trim().substring(0, MESSAGE_CONTENT_SNIPPET_THRESHOLD) + "..." 
+  const contentToRender = (isLongTextContent && !isContentExpanded)
+    ? displayContent.trim().substring(0, MESSAGE_CONTENT_SNIPPET_THRESHOLD) + "..."
     : displayContent;
 
   useEffect(() => {
+    if (message.role === ChatMessageRole.SYSTEM) return; 
     if (markdownContentRef.current) {
       const instance = new Mark(markdownContentRef.current);
       instance.unmark({
@@ -278,17 +230,17 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
           if (highlightTerm && highlightTerm.trim() !== "") {
             instance.mark(highlightTerm, {
               element: "mark",
-              className: "highlighted-text", 
-              exclude: ["pre *", "code *", "pre", "code"], 
-              separateWordSearch: false, 
-              accuracy: "partially", 
-              wildcards: "disabled", 
+              className: "highlighted-text",
+              exclude: ["pre *", "code *", "pre", "code"],
+              separateWordSearch: false,
+              accuracy: "partially",
+              wildcards: "disabled",
             });
           }
         }
       });
     }
-  }, [highlightTerm, contentToRender, isContentExpanded]); 
+  }, [highlightTerm, contentToRender, isContentExpanded, message.role]);
 
 
   useEffect(() => {
@@ -320,6 +272,8 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
   }, [isOptionsMenuOpen]);
 
   useEffect(() => {
+    if (message.role === ChatMessageRole.SYSTEM) return; 
+
     const calculateAndSetAlignment = () => {
       if (!isOptionsMenuOpen || !optionsButtonRef.current || !dropdownRef.current) {
         return;
@@ -327,8 +281,8 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
       const buttonContainer = optionsButtonRef.current.parentElement;
       if (!buttonContainer) return;
 
-      const containerRect = buttonContainer.getBoundingClientRect(); 
-      const dropdownWidth = dropdownRef.current.offsetWidth || 100; 
+      const containerRect = buttonContainer.getBoundingClientRect();
+      const dropdownWidth = dropdownRef.current.offsetWidth || 100;
 
       let frameLeft = 0;
       let frameRight = window.innerWidth;
@@ -338,23 +292,23 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
         frameLeft = chatFrameRect.left;
         frameRight = chatFrameRect.right;
       }
-      
-      let newAlignmentClass = isUser ? 'left-0' : 'right-0'; 
 
-      if (isUser) { 
+      let newAlignmentClass = isUser ? 'left-0' : 'right-0';
+
+      if (isUser) {
         if (containerRect.left + dropdownWidth > frameRight) {
           if (containerRect.right - dropdownWidth >= frameLeft) {
-            newAlignmentClass = 'right-0'; 
+            newAlignmentClass = 'right-0';
           } else {
             newAlignmentClass = 'left-0';
           }
         } else {
           newAlignmentClass = 'left-0';
         }
-      } else { 
+      } else {
         if (containerRect.right - dropdownWidth < frameLeft) {
           if (containerRect.left + dropdownWidth <= frameRight) {
-            newAlignmentClass = 'left-0'; 
+            newAlignmentClass = 'left-0';
           } else {
             newAlignmentClass = 'right-0';
           }
@@ -364,28 +318,28 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
       }
       setDynamicDropdownClass(newAlignmentClass);
     };
-  
+
     if (isOptionsMenuOpen) {
-      requestAnimationFrame(calculateAndSetAlignment); 
+      requestAnimationFrame(calculateAndSetAlignment);
       window.addEventListener('resize', calculateAndSetAlignment);
       const scrollTarget = chatScrollContainerRef?.current || window;
-      scrollTarget.addEventListener('scroll', calculateAndSetAlignment, true); 
-    
+      scrollTarget.addEventListener('scroll', calculateAndSetAlignment, true);
+
       return () => {
         window.removeEventListener('resize', calculateAndSetAlignment);
         scrollTarget.removeEventListener('scroll', calculateAndSetAlignment, true);
       };
     }
-  }, [isOptionsMenuOpen, isUser, message.id, chatScrollContainerRef]);
+  }, [isOptionsMenuOpen, isUser, message.id, chatScrollContainerRef, message.role]);
 
 
   const handleEditClick = () => {
     if (!currentChatSession) return;
-    ui.openEditPanel({ 
-        sessionId: currentChatSession.id, 
-        messageId: message.id, 
-        originalContent: message.content, 
-        role: message.role, 
+    ui.openEditPanel({
+        sessionId: currentChatSession.id,
+        messageId: message.id,
+        originalContent: message.content,
+        role: message.role,
         attachments: message.attachments,
     });
     setIsOptionsMenuOpen(false);
@@ -405,10 +359,10 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
   };
 
   const handleCopyMessageClick = async () => {
-    await handleActualCopyMessage(message.content); 
-    setIsOptionsMenuOpen(false); 
+    await handleActualCopyMessage(message.content);
+    setIsOptionsMenuOpen(false);
   };
-  
+
   const handleMasterPlayButtonClick = () => {
     if (audio.isMainButtonMultiFetchingApi(message.id)) {
         audio.handleCancelMultiPartFetch(message.id);
@@ -431,8 +385,8 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
 
   const handleResetCacheClick = () => {
     if (!currentChatSession) return;
-    ui.requestResetAudioCacheConfirmation(currentChatSession.id, message.id); 
-    setIsOptionsMenuOpen(false); 
+    ui.requestResetAudioCacheConfirmation(currentChatSession.id, message.id);
+    setIsOptionsMenuOpen(false);
   };
 
   const handleReadModeClick = () => {
@@ -442,11 +396,11 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
 
   const triggerAudioDownloadModal = (messageId: string) => {
     if (!currentChatSession) return;
-  
+
     const words = message.content.trim().split(/\s+/);
     const firstWords = words.slice(0, 7).join(' ');
     const defaultNameSuggestion = sanitizeFilename(firstWords, 50) || 'audio_download';
-    
+
     ui.openFilenameInputModal({
       defaultFilename: defaultNameSuggestion,
       promptMessage: "Enter filename for audio (extension .mp3 will be added):",
@@ -465,23 +419,34 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
     setIsOptionsMenuOpen(false);
   };
 
+  if (message.role === ChatMessageRole.SYSTEM) {
+    const isGithubMessage = message.content.includes("GitHub repository");
+    return (
+        <div className="flex justify-center items-center my-3 w-full" id={`message-item-${message.id}`}>
+            <div className="text-center text-xs text-gray-400 bg-black/25 px-4 py-1.5 rounded-full shadow-inner flex items-center gap-2">
+                {isGithubMessage && <GitHubIcon className="w-4 h-4 flex-shrink-0" />}
+                <p>{message.content}</p>
+            </div>
+        </div>
+    );
+  }
 
   const bubbleClasses = isUser
     ? 'bg-indigo-500/10 border border-indigo-400/30 shadow-lg shadow-indigo-900/20 self-end text-white'
     : isError
     ? 'aurora-surface border-red-500/50 shadow-lg shadow-red-900/30 self-start text-white'
     : 'self-start text-gray-200';
-  
+
   const layoutClasses = isUser ? 'justify-end' : 'justify-start';
 
   const generationTime = messageGenerationTimes[message.id];
   const groundingChunks = message.groundingMetadata?.groundingChunks;
-  
+
   const getAudioStateForSegment = (baseMessageId: string, partIdx?: number) => {
     const segmentId = partIdx !== undefined ? `${baseMessageId}_part_${partIdx}` : baseMessageId;
     const isCurrentPlayerTarget = audio.audioPlayerState.currentMessageId === segmentId;
     const segmentFetchErr = audio.getSegmentFetchError(segmentId);
-    
+
     let isCached = false;
     if (partIdx !== undefined) {
         isCached = !!message.cachedAudioBuffers?.[partIdx];
@@ -497,21 +462,21 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
         uniqueSegmentId: segmentId,
         isCurrentAudioPlayerTarget: isCurrentPlayerTarget,
         isAudioPlayingForThisSegment: isCurrentPlayerTarget && audio.audioPlayerState.isPlaying,
-        isAudioLoadingForPlayer: isCurrentPlayerTarget && audio.audioPlayerState.isLoading, 
+        isAudioLoadingForPlayer: isCurrentPlayerTarget && audio.audioPlayerState.isLoading,
         hasAudioErrorForThisSegment: (isCurrentPlayerTarget && !!audio.audioPlayerState.error) || !!segmentFetchErr,
         audioErrorMessage: segmentFetchErr || (isCurrentPlayerTarget ? audio.audioPlayerState.error : null),
         isAudioReadyToPlayFromCacheForSegment: isCached && !(isCurrentPlayerTarget && audio.audioPlayerState.isPlaying) && !(isCurrentPlayerTarget && audio.audioPlayerState.isLoading) && !segmentFetchErr,
     };
   };
-  
-  const { 
-    hasAudioErrorForThisSegment: hasErrorOverall, 
-    audioErrorMessage: overallAudioErrorMessage,
-  } = getAudioStateForSegment(message.id); 
 
-  const isAnyAudioOperationActiveForMessage = 
-    message.isStreaming || 
-    audio.isMainButtonMultiFetchingApi(message.id) || 
+  const {
+    hasAudioErrorForThisSegment: hasErrorOverall,
+    audioErrorMessage: overallAudioErrorMessage,
+  } = getAudioStateForSegment(message.id);
+
+  const isAnyAudioOperationActiveForMessage =
+    message.isStreaming ||
+    audio.isMainButtonMultiFetchingApi(message.id) ||
     textSegmentsForTts.some((_, partIdx) => audio.isApiFetchingThisSegment(`${message.id}_part_${partIdx}`)) ||
     (numExpectedTtsParts <= 1 && audio.isApiFetchingThisSegment(message.id)) ||
     (audio.audioPlayerState.currentMessageId?.startsWith(message.id) && (audio.audioPlayerState.isLoading || audio.audioPlayerState.isPlaying));
@@ -520,17 +485,17 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
   const renderPlayButtonForSegment = (partIndexInput?: number) => {
     const isMainContextButton = partIndexInput === undefined;
     const segmentState = getAudioStateForSegment(message.id, partIndexInput);
-    
+
     let IconComponent = SpeakerWaveIcon;
     let iconClassName = segmentState.isAudioReadyToPlayFromCacheForSegment ? 'text-green-400' : 'text-gray-300';
     let title = segmentState.isAudioReadyToPlayFromCacheForSegment ? `Play cached` : `Play message`;
     if (isMainContextButton) {
-        title = allTtsPartsCached && numExpectedTtsParts > 1 ? "Play All Cached Parts" 
+        title = allTtsPartsCached && numExpectedTtsParts > 1 ? "Play All Cached Parts"
               : (numExpectedTtsParts > 1 ? "Fetch & Prepare All Parts" : (segmentState.isAudioReadyToPlayFromCacheForSegment ? "Play Cached" : "Fetch & Play"));
     } else if (partIndexInput !== undefined) {
         title = `Part ${partIndexInput + 1}: ${segmentState.isAudioReadyToPlayFromCacheForSegment ? "Play cached" : "Play part"}`;
     }
-    
+
     let isDisabled = false;
     let isPulsing = false;
 
@@ -552,17 +517,17 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
         iconClassName = 'text-orange-400';
         title = isMainContextButton ? "Pause" : `Pause Part ${partIndexInput! + 1}`;
     } else if (segmentState.isAudioLoadingForPlayer) {
-        IconComponent = SpeakerWaveIcon; 
-        isPulsing = true; 
-        isDisabled = true; 
+        IconComponent = SpeakerWaveIcon;
+        isPulsing = true;
+        isDisabled = true;
         title = isMainContextButton ? "Loading audio..." : `Loading Part ${partIndexInput! + 1}...`;
-        iconClassName = 'text-blue-400'; 
+        iconClassName = 'text-blue-400';
     } else if (segmentState.hasAudioErrorForThisSegment) {
         IconComponent = SpeakerXMarkIcon;
         iconClassName = 'text-red-400';
         title = `${isMainContextButton ? "" : `Part ${partIndexInput! + 1}: `}Error: ${segmentState.audioErrorMessage || 'Unknown audio error'}. Click to retry.`;
     }
-    
+
     const clickHandler = isMainContextButton ? handleMasterPlayButtonClick : () => handlePartPlayButtonClick(partIndexInput!);
 
     return (
@@ -585,18 +550,18 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
   const showIndividualPartControls = numExpectedTtsParts > 1 && allTtsPartsCached;
 
   return (
-    <div 
-      id={`message-item-${message.id}`} 
-      className={`group flex items-start mb-1 w-full relative transition-colors duration-200 ${isSelected ? 'bg-blue-900/40 rounded-md' : ''} ${isSelectionModeActive ? 'cursor-pointer' : ''} ${layoutClasses}`} 
+    <div
+      id={`message-item-${message.id}`}
+      className={`group flex items-start mb-1 w-full relative transition-colors duration-200 ${isSelected ? 'bg-blue-900/40 rounded-md' : ''} ${isSelectionModeActive ? 'cursor-pointer' : ''} ${layoutClasses}`}
       onClick={() => isSelectionModeActive && toggleMessageSelection(message.id)}
       role="listitem"
     >
       {!isUser && isSelectionModeActive && <Checkbox isSelected={isSelected} onToggle={() => toggleMessageSelection(message.id)} role={message.role} />}
       <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-5xl`}>
         {isModel && message.isStreaming && !isError && !extractedThoughts && (
-          <div 
-            className={`flex items-center space-x-1.5 mb-1.5 px-3 py-1.5 rounded-lg shadow 
-                        ${message.characterName ? 'bg-purple-900/30' : 'bg-black/20'} 
+          <div
+            className={`flex items-center space-x-1.5 mb-1.5 px-3 py-1.5 rounded-lg shadow
+                        ${message.characterName ? 'bg-purple-900/30' : 'bg-black/20'}
                         animate-thinking-dots`}
             aria-label="AI is thinking"
             role="status"
@@ -629,7 +594,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
               </button>
               {isThoughtsExpanded && (
                 <div id={`thoughts-content-${message.id}`} className="p-3 border-t border-slate-700/80 markdown-content text-xs text-slate-300 max-h-48 overflow-y-auto">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={{ code: CodeBlock, p: 'div' }}>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownRenderers}>
                     {extractedThoughts}
                   </ReactMarkdown>
                 </div>
@@ -649,10 +614,10 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                 )}
                 {contentToRender.trim() && (
                     <div ref={markdownContentRef} className="text-sm markdown-content break-words">
-                    <ReactMarkdown 
+                    <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         rehypePlugins={[rehypeRaw]}
-                        components={{ code: CodeBlock, p: 'div' }}
+                        components={markdownRenderers}
                     >
                         {contentToRender}
                     </ReactMarkdown>
@@ -678,19 +643,19 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                     {message.attachments.map(attachment => (
                         <div key={attachment.id} className="relative group/attachment border border-white/10 rounded-md overflow-hidden bg-black/20">
                         {attachment.mimeType.startsWith('image/') && attachment.type === 'image' && attachment.mimeType !== 'application/pdf' ? (
-                            <img 
-                                src={attachment.dataUrl} 
-                                alt={attachment.name} 
+                            <img
+                                src={attachment.dataUrl}
+                                alt={attachment.name}
                                 className="max-w-full max-h-60 object-contain rounded-md cursor-pointer"
                                 onClick={() => attachment.dataUrl && window.open(attachment.dataUrl, '_blank')}
                             />
                         ) : attachment.mimeType.startsWith('video/') && attachment.type === 'video' ? (
-                            <video 
-                                src={attachment.dataUrl} 
-                                controls 
+                            <video
+                                src={attachment.dataUrl}
+                                controls
                                 className="max-w-full max-h-60 object-contain rounded-md"
                             />
-                        ) : ( 
+                        ) : (
                             <div className="p-2 h-full flex flex-col items-center justify-center bg-transparent transition-colors hover:bg-white/5 cursor-pointer" onClick={() => attachment.dataUrl && window.open(attachment.dataUrl, '_blank')}>
                                 <DocumentIcon className="w-8 h-8 mb-1 text-gray-300" />
                                 <span className="text-xs text-gray-300 text-center break-all px-1">{attachment.name}</span>
@@ -747,7 +712,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                     </div>
                 )}
                 </>
-            
+
                 <>
                     <div className="text-xs mt-1 opacity-60 flex items-center space-x-1.5">
                         <span>{new Date(message.timestamp).toLocaleTimeString()}</span>
@@ -763,15 +728,15 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                             Generated in {generationTime.toFixed(1)}s
                         </p>
                     )}
-                    {hasErrorOverall && ( 
+                    {hasErrorOverall && (
                         <p className="text-xs mt-0.5 text-red-400" title={overallAudioErrorMessage || undefined}>
                             Audio Error: {overallAudioErrorMessage?.substring(0,50) || "Playback or fetch failed."}
                             {overallAudioErrorMessage && overallAudioErrorMessage.length > 50 ? "..." : ""}
                         </p>
                     )}
-                    <div 
+                    <div
                         className={`absolute top-1 ${isUser ? 'left-1' : 'right-1'}
-                                    opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 
+                                    opacity-0 group-hover:opacity-100 group-focus-within:opacity-100
                                     transition-opacity duration-150 z-10 flex items-center flex-wrap gap-1`}
                         aria-label="Message actions"
                     >
@@ -779,11 +744,11 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                         <>
                             {!showIndividualPartControls && renderPlayButtonForSegment()}
                             {showIndividualPartControls && textSegmentsForTts.map((_, index) => renderPlayButtonForSegment(index))}
-                            
+
                             {hasAnyCachedAudio && !isAnyAudioOperationActiveForMessage && (
                                 <ResetAudioCacheButton
                                     onClick={handleResetCacheClick}
-                                    disabled={isAnyAudioOperationActiveForMessage || isSelectionModeActive} 
+                                    disabled={isAnyAudioOperationActiveForMessage || isSelectionModeActive}
                                     title="Reset Audio Cache"
                                 />
                             )}
@@ -836,9 +801,9 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                             {message.content.trim() && !isError && allTtsPartsCached && (
                                 <DropdownMenuItem
                                     onClick={() => triggerAudioDownloadModal(message.id)}
-                                    icon={ArrowDownTrayIcon} 
+                                    icon={ArrowDownTrayIcon}
                                     label={"Download Audio"}
-                                    disabled={isAnyAudioOperationActiveForMessage} 
+                                    disabled={isAnyAudioOperationActiveForMessage}
                                     hoverGlowClassName="hover:shadow-[0_0_10px_1px_rgba(255,255,255,0.2)]"
                                 />
                             )}
@@ -851,7 +816,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                                     hoverGlowClassName="hover:shadow-[0_0_10px_1px_rgba(90,98,245,0.7)]"
                                 />
                             )}
-                            {!isError && isModel && !message.characterName && ( 
+                            {!isError && isModel && !message.characterName && (
                                 <DropdownMenuItem
                                     onClick={() => { handleRegenerateAIMessage(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
                                     icon={ArrowPathIcon}
@@ -871,19 +836,19 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                             )}
                              <DropdownMenuItem
                                 onClick={() => { handleDeleteSingleMessageOnly(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
-                                icon={XCircleIcon} 
+                                icon={XCircleIcon}
                                 label="Delete This Message"
                                 className="text-red-400"
                                 hoverGlowClassName="hover:shadow-[0_0_10px_1px_rgba(239,68,68,0.7)]"
-                                disabled={isAnyAudioOperationActiveForMessage} 
+                                disabled={isAnyAudioOperationActiveForMessage}
                             />
                             <DropdownMenuItem
                                 onClick={() => { ui.requestDeleteConfirmation(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
-                                icon={TrashIcon} 
+                                icon={TrashIcon}
                                 label="Delete Message & History"
                                 className="text-red-400"
                                 hoverGlowClassName="hover:shadow-[0_0_10px_1px_rgba(239,68,68,0.7)]"
-                                disabled={isAnyAudioOperationActiveForMessage} 
+                                disabled={isAnyAudioOperationActiveForMessage}
                             />
                         </div>
                     )}
@@ -897,6 +862,6 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
   );
 };
 
-const MessageItem = memo(MessageItemComponent); 
+const MessageItem = memo(MessageItemComponent);
 
 export default MessageItem;
