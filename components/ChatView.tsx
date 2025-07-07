@@ -5,7 +5,7 @@ import { useUIContext } from '../contexts/UIContext.tsx';
 import { ChatMessageRole, AICharacter } from '../types.ts';
 import MessageItem from './MessageItem.tsx';
 import { LOAD_MORE_MESSAGES_COUNT } from '../constants.ts';
-import { Bars3Icon, FlowRightIcon, StopIcon, PaperClipIcon, XCircleIcon, DocumentIcon, PlayCircleIcon, UsersIcon, PlusIcon, ArrowsUpDownIcon, CheckIcon, InfoIcon, CloudArrowUpIcon, ServerIcon, SendIcon, ClipboardDocumentCheckIcon, GitHubIcon } from './Icons.tsx';
+import { Bars3Icon, FlowRightIcon, StopIcon, PaperClipIcon, XCircleIcon, DocumentIcon, PlayCircleIcon, UsersIcon, PlusIcon, ArrowsUpDownIcon, CheckIcon, InfoIcon, CloudArrowUpIcon, ServerIcon, SendIcon, ClipboardDocumentCheckIcon } from './Icons.tsx';
 import AutoSendControls from './AutoSendControls.tsx';
 import ManualSaveButton from './ManualSaveButton.tsx';
 import { useAttachmentHandler } from '../hooks/useAttachmentHandler.ts';
@@ -13,7 +13,6 @@ import useAutoResizeTextarea from '../hooks/useAutoResizeTextarea.ts';
 import { getModelDisplayName } from '../services/utils.ts';
 import { useApiKeyContext } from '../contexts/ApiKeyContext.tsx';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import GithubUrlModal from './GithubUrlModal.tsx';
 
 interface ChatViewProps {
     onEnterReadMode: (content: string) => void;
@@ -38,14 +37,12 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
     const { activeApiKey } = useApiKeyContext();
 
     const [inputMessage, setInputMessage] = useState('');
-    const [isGithubModalOpen, setIsGithubModalOpen] = useState(false);
     const [expansionState, setExpansionState] = useState<Record<string, { content?: boolean; thoughts?: boolean }>>({});
     const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messageListRef = useRef<HTMLDivElement>(null);
     const textareaRef = useAutoResizeTextarea<HTMLTextAreaElement>(inputMessage);
     const [showLoadButtonsUI, setShowLoadButtonsUI] = useState(false);
-    const isFetchingMoreRef = useRef(false);
 
     const isCharacterMode = currentChatSession?.isCharacterModeActive || false;
     const [characters, setCharactersState] = useState<AICharacter[]>(currentChatSession?.aiCharacters || []);
@@ -70,7 +67,6 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
         resetSelectedFiles,
         getFileProgressDisplay,
         getDisplayFileType,
-        handleGitHubUrl,
     } = attachmentHandler;
 
     const visibleMessages = visibleMessagesForCurrentChat || []; // Use pre-sliced messages from context
@@ -215,20 +211,11 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
     
             if (scrollTop < 5 && canFetchMore) {
                 setShowLoadButtonsUI(true);
-                if (!isLoading && !isFetchingMoreRef.current) {
-                    isFetchingMoreRef.current = true;
-                    handleLoadMoreDisplayMessages(currentChatSession.id, LOAD_MORE_MESSAGES_COUNT)
-                        .finally(() => {
-                            setTimeout(() => {
-                                isFetchingMoreRef.current = false;
-                            }, 500); // Debounce to prevent rapid-fire requests
-                        });
-                }
             } else {
                 setShowLoadButtonsUI(false);
             }
         }
-    }, [currentChatSession, visibleMessages.length, totalMessagesInSession, isLoading, handleLoadMoreDisplayMessages]);
+    }, [currentChatSession, visibleMessages.length, totalMessagesInSession]);
 
     const handleLoadMore = useCallback((count: number) => {
         if (!currentChatSession) return;
@@ -512,14 +499,6 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                             aria-label="Attach files">
                             <PaperClipIcon className="w-5 h-5" />
                         </button>
-                        <button 
-                            onClick={() => setIsGithubModalOpen(true)}
-                            disabled={!currentChatSession || ui.isSelectionModeActive}
-                            className="p-2.5 sm:p-3 m-1 text-gray-300 hover:text-white rounded-md disabled:opacity-50"
-                            title="Import from GitHub"
-                        >
-                            <GitHubIcon className="w-5 h-5" />
-                        </button>
                         {isCharacterMode && (
                             <button onClick={toggleInfoInputMode} disabled={isLoading || !currentChatSession || autoSendHook.isAutoSendingActive || ui.isSelectionModeActive} className={`p-2.5 sm:p-3 m-1 text-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow focus:outline-none ${isInfoInputModeActive ? 'bg-yellow-500/20 text-yellow-300 hover:shadow-[0_0_12px_2px_rgba(234,179,8,0.6)]' : 'hover:text-white hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]'}`} title={isInfoInputModeActive ? "Disable One-Time Info Input" : "Enable One-Time Info Input"} aria-label={isInfoInputModeActive ? "Disable One-Time Info Input" : "Enable One-Time Info Input"} aria-pressed={isInfoInputModeActive}>
                                 <InfoIcon className="w-5 h-5" />
@@ -553,14 +532,6 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                     </div>
                 </div>
             </div>
-            <GithubUrlModal 
-                isOpen={isGithubModalOpen}
-                onClose={() => setIsGithubModalOpen(false)}
-                onSubmit={(url) => {
-                    handleGitHubUrl(url);
-                    setIsGithubModalOpen(false);
-                }}
-            />
         </div>
     );
 }));

@@ -6,7 +6,6 @@ import { getFullChatResponse, generateMimicUserResponse, clearCachedChat as gemi
 import { DEFAULT_SETTINGS } from '../constants.ts';
 import { EditMessagePanelAction, EditMessagePanelDetails } from '../components/EditMessagePanel.tsx';
 import { findPrecedingUserMessageIndex, getHistoryUpToMessage } from '../services/utils.ts'; // Import helpers
-import { fetchGitHubRepoContent } from '../services/githubService.ts';
 
 // Define props for the hook
 interface UseGeminiProps {
@@ -160,21 +159,6 @@ export function useGemini({
   ) => {
     if (!currentChatSession || isLoading) return;
 
-    let finalPromptContent = promptContent;
-    if (attachments && attachments.length > 0) {
-        for (const attachment of attachments) {
-            if (attachment.type === 'github_repo') {
-                try {
-                    const repoContent = await fetchGitHubRepoContent(attachment);
-                    finalPromptContent = `${repoContent}\n\n---\n\n${finalPromptContent}`;
-                } catch (error) {
-                    console.error('Failed to fetch GitHub repository content:', error);
-                    // Optionally, show a toast to the user
-                }
-            }
-        }
-    }
-
     await rotateApiKey();
 
     requestCancelledByUserRef.current = false;
@@ -216,7 +200,7 @@ export function useGemini({
     }
 
     // Guard against truly empty messages in non-character mode if not an edit
-    if (!characterIdForAPICall && !historyContextOverride && !finalUserMessageInputForAPI.text.trim() && (!finalUserMessageInputForAPI.attachments || finalUserMessageInputForAPI.attachments.length === 0)) {
+    if (!characterIdForAPICall && !historyContextOverride && !finalUserMessageInputForAPI.text.trim() && (!finalUserMessageInputForAPI.attachments || finalUserMessageInputForAPI.attachments.length === 0) && !currentChatSession.githubRepoContext) {
         return;
     }
 
@@ -292,7 +276,7 @@ export function useGemini({
     await getFullChatResponse(
         apiKey,
         activeChatIdForThisCall,
-        { text: finalPromptContent, attachments }, // Pass the modified prompt
+        finalUserMessageInputForAPI, // Current turn's content
         currentChatSession.model,
         baseSettingsForAPICall,
         historyForGeminiSDK, // History *before* current turn
@@ -406,7 +390,8 @@ export function useGemini({
         logApiRequestDirectly,
         abortControllerRef.current.signal,
         settingsOverrideForAPICall,
-        currentChatSession.aiCharacters
+        currentChatSession.aiCharacters,
+        currentChatSession.githubRepoContext?.contextText
     );
   }, [apiKey, currentChatSession, isLoading, updateChatSession, logApiRequestDirectly, setMessageGenerationTimes, lastMessageHadAttachments, onNewAIMessageFinalized, rotateApiKey]);
 
@@ -516,7 +501,11 @@ export function useGemini({
                 if (!requestCancelledByUserRef.current && pendingMessageIdRef.current === operationPendingMessageId) { setIsLoading(false); setLastMessageHadAttachments(false); }
             },
             () => commonOnCompleteForFlow(operationPendingMessageId),
-            logApiRequestDirectly, abortControllerRef.current.signal
+            logApiRequestDirectly, 
+            abortControllerRef.current.signal,
+            undefined, // No settings override for standard flow
+            currentChatSession.aiCharacters,
+            currentChatSession.githubRepoContext?.contextText
         );
     } else if (lastMessage.role === ChatMessageRole.MODEL || lastMessage.role === ChatMessageRole.ERROR) {
         const mimicUserMessageId = `msg-${Date.now()}-user-mimic-${Math.random().toString(36).substring(2,7)}`;
@@ -772,7 +761,8 @@ export function useGemini({
       logApiRequestDirectly,
       abortControllerRef.current.signal,
       settingsOverrideForRegen,
-      currentChatSession.aiCharacters
+      currentChatSession.aiCharacters,
+      currentChatSession.githubRepoContext?.contextText
     );
   }, [apiKey, currentChatSession, isLoading, updateChatSession, logApiRequestDirectly, setMessageGenerationTimes, onNewAIMessageFinalized, rotateApiKey]);
 
@@ -988,7 +978,8 @@ export function useGemini({
             logApiRequestDirectly,
             abortControllerRef.current.signal,
             settingsOverrideForContinue,
-            currentChatSession.aiCharacters
+            currentChatSession.aiCharacters,
+            currentChatSession.githubRepoContext?.contextText
         );
     }
     // SAVE_LOCALLY and CANCEL are handled by useChatInteractions hook's wrapper

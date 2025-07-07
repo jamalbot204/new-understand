@@ -32,7 +32,7 @@ export type AttachmentUploadState =
 
 export interface Attachment {
   id: string; 
-  type: 'image' | 'video' | 'github_repo'; // Simplified, can be expanded for generic files
+  type: 'image' | 'video'; // Simplified, can be expanded for generic files
   mimeType: string; // Original MIME type of the file
   name: string;
   base64Data?: string; // Pure base64 encoded content, for re-upload or fallback
@@ -197,7 +197,11 @@ export interface ChatSession {
   lastUpdatedAt: Date;
   isCharacterModeActive?: boolean; 
   aiCharacters?: AICharacter[];    
-  apiRequestLogs?: ApiRequestLog[]; 
+  apiRequestLogs?: ApiRequestLog[];
+  githubRepoContext?: {
+    url: string;
+    contextText: string;
+  } | null;
 }
 
 export interface UserDefinedDefaults {
@@ -276,33 +280,13 @@ export type UseAudioPlayerCacheCallback = (uniqueSegmentId: string, audioBuffer:
 
 export interface MessageItemProps {
   message: ChatMessage;
-  chatSessionId: string;
-  messageGenerationTimes: Record<string, number>; 
-  onCopyMessage: (content: string) => Promise<boolean>; 
-  onAttemptDeleteMessageAndHistory: (sessionId: string, messageId: string) => void; 
-  onDeleteSingleMessage: (sessionId: string, messageId: string) => void; 
-  onEditUserMessage: (sessionId: string, messageId: string, currentContent: string, role: ChatMessageRole, attachments?: Attachment[]) => void;
-  onEditModelMessage: (sessionId: string, messageId: string, currentContent: string, role: ChatMessageRole, attachments?: Attachment[]) => void;
-  onRegenerateAIMessage: (sessionId: string, aiMessageId: string) => void;
-  onRegenerateResponseForUserMessage?: (sessionId: string, userMessageId: string) => void;
   canRegenerateFollowingAI?: boolean;
   chatScrollContainerRef?: React.RefObject<HTMLDivElement>;
-  onPlayText: (fullText: string, baseMessageId: string, partIndex?: number) => void; 
-  onStopPlayback: () => void; 
-  audioPlayerState: AudioPlayerState;
-  isApiFetchingThisSegment: (uniqueSegmentId: string) => boolean; 
-  onCancelApiFetchThisSegment: (uniqueSegmentId: string) => void; 
-  getSegmentFetchError: (uniqueSegmentId: string) => string | undefined; 
-  isMainButtonMultiFetchingApi: (baseMessageId: string) => boolean;
-  onCancelMainButtonMultiFetchApi: (baseMessageId: string) => void;
-  onRequestResetAudioCacheConfirmation: (sessionId: string, messageId: string) => void;
-  onDownloadAudio?: (sessionId: string, messageId: string) => void;
-  highlightTerm?: string; 
-  onReUploadAttachment?: (sessionId: string, messageId: string, attachmentId: string) => Promise<void>; 
-  maxWordsPerSegmentForTts?: number;
-  showReadModeButton?: boolean;
+  highlightTerm?: string;
   onEnterReadMode: (content: string) => void;
-  onInsertEmptyMessageAfter?: (sessionId: string, afterMessageId: string, roleToInsert: ChatMessageRole.USER | ChatMessageRole.MODEL) => Promise<void>;
+  isContentExpanded?: boolean;
+  isThoughtsExpanded?: boolean;
+  onToggleExpansion: (messageId: string, type: 'content' | 'thoughts') => void;
 }
 
 

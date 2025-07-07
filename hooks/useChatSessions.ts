@@ -1,4 +1,5 @@
 
+
 import { useState, useEffect, useCallback } from 'react';
 import { ChatSession, GeminiSettings, UserDefinedDefaults } from '../types.ts';
 import * as dbService from '../services/dbService.ts';
@@ -123,6 +124,7 @@ export function useChatSessions() {
       isCharacterModeActive: false, 
       aiCharacters: [],      
       apiRequestLogs: [],
+      githubRepoContext: null,
     };
 
     setChatHistory(prev => [newSession, ...prev].sort((a,b) => new Date(b.lastUpdatedAt).getTime() - new Date(a.lastUpdatedAt).getTime()));

@@ -1,9 +1,9 @@
-
-import React, { useState, useEffect, useRef, memo } from 'react'; // Added memo
+import React, { useState, useEffect, useRef, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { LightAsync as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomOneDark } from 'react-syntax-highlighter/dist/esm/styles/hljs';
+import rehypeRaw from 'rehype-raw';
+import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import Mark from 'mark.js/dist/mark.es6.js';
 import { ChatMessage, ChatMessageRole, GroundingChunk, Attachment } from '../types.ts';
 import ResetAudioCacheButton from './ResetAudioCacheButton.tsx';
@@ -17,9 +17,22 @@ import {
     ArrowPathIcon, MagnifyingGlassIcon, DocumentIcon, 
     ArrowDownTrayIcon, EllipsisVerticalIcon, ClipboardIcon, CheckIcon, UsersIcon,
     ChevronDownIcon, ChevronRightIcon, XCircleIcon, SpeakerWaveIcon, SpeakerXMarkIcon,
-    PauseIcon, ChevronUpIcon, BookOpenIcon, ChatBubblePlusIcon
+    PauseIcon, ChevronUpIcon, BookOpenIcon, ChatBubblePlusIcon, GitHubIcon
 } from './Icons.tsx';
 import { splitTextForTts, sanitizeFilename } from '../services/utils.ts';
+
+// Import and register only the necessary languages
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
+import java from 'react-syntax-highlighter/dist/esm/languages/prism/java';
+import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
+import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx';
+
+SyntaxHighlighter.registerLanguage('javascript', javascript);
+SyntaxHighlighter.registerLanguage('python', python);
+SyntaxHighlighter.registerLanguage('java', java);
+SyntaxHighlighter.registerLanguage('css', css);
+SyntaxHighlighter.registerLanguage('jsx', jsx);
 
 interface MessageItemProps {
   message: ChatMessage;
@@ -81,7 +94,7 @@ const CodeBlock: React.FC<React.PropsWithChildren<{ inline?: boolean; className?
         </div>
         {lang ? ( 
           <SyntaxHighlighter
-            style={atomOneDark}
+            style={atomDark}
             language={lang}
             PreTag="div" 
             customStyle={{ 
@@ -172,7 +185,7 @@ const Checkbox: React.FC<{
     </div>
 ));
 
-const MessageItemComponent: React.FC<MessageItemProps> = ({ 
+const MessageItemComponent: React.FC<MessageItemProps> = ({
   message, 
   canRegenerateFollowingAI,
   chatScrollContainerRef,
@@ -208,6 +221,18 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
   const { isSelectionModeActive, selectedMessageIds, toggleMessageSelection } = ui;
   const isSelected = isSelectionModeActive && selectedMessageIds.has(message.id);
   
+  if (message.role === ChatMessageRole.SYSTEM) {
+    const isGithubMessage = message.content.includes("GitHub repository");
+    return (
+        <div className="flex justify-center items-center my-3 w-full" id={`message-item-${message.id}`}>
+            <div className="text-center text-xs text-gray-400 bg-black/25 px-4 py-1.5 rounded-full shadow-inner flex items-center gap-2">
+                {isGithubMessage && <GitHubIcon className="w-4 h-4 flex-shrink-0" />}
+                <p>{message.content}</p>
+            </div>
+        </div>
+    );
+  }
+
   let displayContent = message.content;
   let extractedThoughts: string | null = null;
   const thoughtsMarker = "THOUGHTS:"; 
@@ -626,6 +651,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                     <div ref={markdownContentRef} className="text-sm markdown-content break-words">
                     <ReactMarkdown 
                         remarkPlugins={[remarkGfm]}
+                        rehypePlugins={[rehypeRaw]}
                         components={{ code: CodeBlock, p: 'div' }}
                     >
                         {contentToRender}

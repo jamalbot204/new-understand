@@ -1,3 +1,4 @@
+
 import { useState, useCallback } from 'react';
 import { EditMessagePanelDetails } from '../components/EditMessagePanel.tsx'; // Adjusted path
 import { AICharacter, ChatSession, AttachmentWithContext } from '../types.ts'; // Adjusted path
@@ -39,6 +40,9 @@ export function useAppModals(
 
   // New state for ApiKeyModal
   const [isApiKeyModalOpen, setIsApiKeyModalOpen] = useState(false);
+
+  // New state for GitHubImportModal
+  const [isGitHubImportModalOpen, setIsGitHubImportModalOpen] = useState(false);
 
 
   const openSettingsPanel = useCallback(() => { setIsSettingsPanelOpen(true); closeSidebar(); }, [closeSidebar]);
@@ -148,6 +152,10 @@ export function useAppModals(
   const openApiKeyModal = useCallback(() => { setIsApiKeyModalOpen(true); closeSidebar(); }, [closeSidebar]);
   const closeApiKeyModal = useCallback(() => setIsApiKeyModalOpen(false), []);
 
+  // Handlers for GitHubImportModal
+  const openGitHubImportModal = useCallback(() => { setIsGitHubImportModalOpen(true); closeSidebar(); }, [closeSidebar]);
+  const closeGitHubImportModal = useCallback(() => setIsGitHubImportModalOpen(false), []);
+
 
   return {
     isSettingsPanelOpen, openSettingsPanel, closeSettingsPanel,
@@ -177,5 +185,10 @@ export function useAppModals(
     isApiKeyModalOpen,
     openApiKeyModal,
     closeApiKeyModal,
+
+    // GitHubImportModal related
+    isGitHubImportModalOpen,
+    openGitHubImportModal,
+    closeGitHubImportModal,
   };
 }

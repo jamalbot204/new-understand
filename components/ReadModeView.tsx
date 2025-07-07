@@ -1,14 +1,25 @@
-
 import React, { useEffect, memo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { LightAsync as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { atomOneDark } from 'react-syntax-highlighter/dist/esm/styles/hljs';
+import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { CloseIcon } from './Icons.tsx';
 import AdvancedAudioPlayer from './AdvancedAudioPlayer.tsx';
 import { useAudioContext } from '../contexts/AudioContext.tsx';
 import { useChatState } from '../contexts/ChatContext.tsx';
 
+// Import and register only the necessary languages
+import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
+import python from 'react-syntax-highlighter/dist/esm/languages/prism/python';
+import java from 'react-syntax-highlighter/dist/esm/languages/prism/java';
+import css from 'react-syntax-highlighter/dist/esm/languages/prism/css';
+import jsx from 'react-syntax-highlighter/dist/esm/languages/prism/jsx';
+
+SyntaxHighlighter.registerLanguage('javascript', javascript);
+SyntaxHighlighter.registerLanguage('python', python);
+SyntaxHighlighter.registerLanguage('java', java);
+SyntaxHighlighter.registerLanguage('css', css);
+SyntaxHighlighter.registerLanguage('jsx', jsx);
 
 interface ReadModeViewProps {
   isOpen: boolean;
@@ -42,7 +53,7 @@ const CodeBlock: React.FC<React.PropsWithChildren<{ inline?: boolean; className?
       </div>
       {lang ? (
         <SyntaxHighlighter
-          style={atomOneDark}
+          style={atomDark}
           language={lang}
           PreTag="div"
           customStyle={{ margin: 0, padding: '1rem', fontSize: '0.9em', backgroundColor: 'transparent' }}

@@ -3,7 +3,7 @@ import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
 import { useUIContext } from '../contexts/UIContext.tsx';
 import { GeminiSettings, SafetySetting } from '../types.ts';
 import { DEFAULT_SETTINGS, MODEL_DEFINITIONS, DEFAULT_MODEL_ID, INITIAL_MESSAGES_COUNT, MODELS_SUPPORTING_THINKING_BUDGET_UI, MODELS_SENDING_THINKING_CONFIG_API } from '../constants.ts';
-import { CloseIcon, ShieldCheckIcon, PencilIcon, MagnifyingGlassIcon, LinkIcon, BugAntIcon, ArrowPathIcon, SpeakerWaveIcon, CalculatorIcon, ExportBoxIcon, PlayIcon, BookOpenIcon, FolderOpenIcon, KeyIcon } from './Icons.tsx';
+import { CloseIcon, ShieldCheckIcon, PencilIcon, MagnifyingGlassIcon, LinkIcon, BugAntIcon, ArrowPathIcon, SpeakerWaveIcon, CalculatorIcon, ExportBoxIcon, PlayIcon, BookOpenIcon, FolderOpenIcon, KeyIcon, GitHubIcon, TrashIcon } from './Icons.tsx';
 import SafetySettingsModal from './SafetySettingsModal.tsx';
 import InstructionEditModal from './InstructionEditModal.tsx';
 import TtsSettingsModal from './TtsSettingsModal.tsx';
@@ -26,7 +26,7 @@ const InstructionButton: React.FC<{
 // No more props needed!
 const SettingsPanel: React.FC = memo(() => {
     const { currentChatSession } = useChatState();
-    const { updateChatSession, handleClearChatCacheForCurrentSession } = useChatActions();
+    const { updateChatSession, handleClearChatCacheForCurrentSession, handleSetGithubRepo } = useChatActions();
     const ui = useUIContext();
 
     const [localSettings, setLocalSettings] = useState<GeminiSettings>(currentChatSession?.settings || DEFAULT_SETTINGS);
@@ -149,6 +149,14 @@ const SettingsPanel: React.FC = memo(() => {
     const handleOpenApiKeyModal = useCallback(() => {
         ui.openApiKeyModal();
     }, [ui]);
+    
+    const handleOpenGitHubImportModal = useCallback(() => {
+        ui.openGitHubImportModal();
+    }, [ui]);
+
+    const handleRemoveGithubRepo = useCallback(() => {
+        handleSetGithubRepo(null);
+    }, [handleSetGithubRepo]);
 
     if (!ui.isSettingsPanelOpen || !currentChatSession) return null;
 
@@ -252,10 +260,40 @@ const SettingsPanel: React.FC = memo(() => {
                             </div>
                             <p className="text-xs text-gray-400 mt-1 ml-6">If enabled, AI can use Google Search to inform responses. May increase response time.</p>
                         </div>
-                        <div>
-                            <label htmlFor="urlContext" className="block text-sm font-medium text-gray-300 mb-1 flex items-center"><LinkIcon className="w-4 h-4 mr-1.5 text-gray-400" />URL Context (Optional - One per line)</label>
-                            <textarea id="urlContext" name="urlContext" rows={3} className="w-full p-2 aurora-textarea" placeholder="e.g., https://example.com/article1\nhttps://example.com/article2" value={(localSettings.urlContext || []).join('\n')} onChange={handleInputChange} />
-                            <p className="text-xs text-gray-400 mt-1">Provide URLs for the AI to consider as context. One URL per line.</p>
+                         <div className="border-t border-[var(--aurora-border)] pt-4">
+                            <h3 className="text-md font-medium text-gray-300 mb-2 flex items-center"><LinkIcon className="w-5 h-5 mr-2 text-gray-400" />Context</h3>
+                            <div className="pl-4 space-y-4">
+                                <div>
+                                    <div className="flex justify-between items-center mb-1">
+                                        <h4 className="text-sm font-medium text-gray-300 flex items-center"><GitHubIcon className="w-4 h-4 mr-1.5" />GitHub Repository</h4>
+                                        {!currentChatSession.githubRepoContext &&
+                                            <button
+                                                onClick={handleOpenGitHubImportModal}
+                                                className="text-sm text-blue-400 flex items-center transition-all hover:text-blue-300 hover:drop-shadow-[0_0_3px_rgba(147,197,253,0.8)]"
+                                                aria-label="Import GitHub Repository"
+                                            >
+                                                Import Repo
+                                                <PencilIcon className="w-3 h-3 ml-1" />
+                                            </button>
+                                        }
+                                    </div>
+                                    {currentChatSession.githubRepoContext ? (
+                                        <div className="p-2 bg-black/20 rounded-md flex items-center justify-between">
+                                            <p className="text-xs text-gray-300 truncate font-mono" title={currentChatSession.githubRepoContext.url}>{currentChatSession.githubRepoContext.url}</p>
+                                            <button onClick={handleRemoveGithubRepo} className="p-1 text-red-500 hover:text-red-400 ml-2" title="Remove Repository Context">
+                                                <TrashIcon className="w-4 h-4"/>
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-gray-400">Provide a public GitHub repository to be fetched and used as context.</p>
+                                    )}
+                                </div>
+                                <div>
+                                    <label htmlFor="urlContext" className="block text-sm font-medium text-gray-300 mb-1 flex items-center">URL Context (Optional - One per line)</label>
+                                    <textarea id="urlContext" name="urlContext" rows={3} className="w-full p-2 aurora-textarea" placeholder="e.g., https://example.com/article1\nhttps://example.com/article2" value={(localSettings.urlContext || []).join('\n')} onChange={handleInputChange} />
+                                    <p className="text-xs text-gray-400 mt-1">Provide other URLs for the AI to consider as context. One URL per line.</p>
+                                </div>
+                            </div>
                         </div>
                         <div className="border-t border-[var(--aurora-border)] pt-4">
                             <h3 className="text-md font-medium text-gray-300 mb-2 flex items-center"><CalculatorIcon className="w-5 h-5 mr-2 text-gray-400" />Session Statistics</h3>

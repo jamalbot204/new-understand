@@ -1,4 +1,5 @@
 
+
 import React, { createContext, useContext, useState, useCallback, ReactNode, useMemo, useRef } from 'react';
 import { ChatSession, ChatMessage, Attachment, AICharacter, ApiRequestLog, ExportConfiguration, LogApiRequestCallback, UseAutoSendReturn, ChatMessageRole } from '../types.ts';
 import { useChatSessions } from '../hooks/useChatSessions.ts';
@@ -78,6 +79,7 @@ interface ChatActionsContextType {
   performActualAudioCacheReset: (sessionId: string, messageId: string) => Promise<void>;
   handleInsertEmptyMessageAfter: (sessionId: string, afterMessageId: string, roleToInsert: ChatMessageRole.USER | ChatMessageRole.MODEL) => Promise<void>;
   handleDeleteMultipleMessages: (messageIds: string[]) => Promise<void>;
+  handleSetGithubRepo: (url: string | null) => Promise<void>;
 }
 
 const ChatStateContext = createContext<ChatStateContextType | null>(null);
@@ -198,6 +200,122 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     await aiCharacters.handleDeleteCharacter(id);
     ui.showToast("Character deleted!", "success");
   };
+  
+  const handleSetGithubRepo = useCallback(async (url: string | null) => {
+    if (!rawCurrentChatSession) {
+      ui.showToast("No active chat session.", "error");
+      return;
+    }
+
+    if (url === null) {
+      await updateChatSession(rawCurrentChatSession.id, session => session ? ({
+        ...session,
+        githubRepoContext: null,
+        messages: [...session.messages, {
+          id: `msg-${Date.now()}-system`,
+          role: ChatMessageRole.SYSTEM,
+          content: "GitHub repository context has been removed.",
+          timestamp: new Date(),
+        }]
+      }) : null);
+      ui.showToast("GitHub repository context removed.", "success");
+      return;
+    }
+
+    ui.closeGitHubImportModal();
+    
+    const processingMessage: ChatMessage = {
+      id: `msg-${Date.now()}-system-processing`,
+      role: ChatMessageRole.SYSTEM,
+      content: `Processing GitHub repository: ${url}...`,
+      timestamp: new Date(),
+    };
+    await updateChatSession(rawCurrentChatSession.id, session => session ? ({
+      ...session,
+      messages: [...session.messages, processingMessage]
+    }) : null);
+
+    try {
+      // Clean the URL before parsing
+      const cleanUrlString = url.endsWith('.git') ? url.slice(0, -4) : url;
+      const urlObject = new URL(cleanUrlString);
+      const urlParts = urlObject.pathname.split('/').filter(Boolean);
+
+      if (urlParts.length < 2) throw new Error("Invalid GitHub URL format. Expected 'github.com/owner/repo'.");
+      const [owner, repo] = urlParts;
+
+      let contextBuilder = "Here is the code I would like to discuss:\n\n";
+      let fetchedFilesCount = 0;
+
+      // Recursive function to fetch all files from all directories.
+      const fetchDirectoryContents = async (path: string) => {
+        const contentsUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
+        const response = await fetch(contentsUrl);
+
+        // Gracefully skip directories that can't be fetched (e.g., private submodules, permissions errors)
+        if (!response.ok) {
+            console.warn(`Could not fetch directory contents for: ${path}. Status: ${response.status}`);
+            return;
+        }
+        
+        const contents: any[] = await response.json();
+
+        for (const item of contents) {
+            if (item.type === 'file' && item.download_url) {
+                try {
+                    const contentResponse = await fetch(item.download_url);
+                    if (contentResponse.ok) {
+                        const content = await contentResponse.text();
+                        const fileContext = `--- FILE: ${item.path} ---\n\n${content}\n\n`;
+                        contextBuilder += fileContext;
+                        fetchedFilesCount++;
+                    }
+                } catch (fileFetchError) {
+                    // Log and continue if a single file fails
+                    console.warn(`Could not fetch content for file: ${item.path}`, fileFetchError);
+                }
+            } else if (item.type === 'dir') {
+                await fetchDirectoryContents(item.path); // Recursive call for subdirectories
+            }
+        }
+      };
+
+      await fetchDirectoryContents(''); // Start fetching from the root directory
+      
+      if (fetchedFilesCount === 0) {
+        throw new Error("Could not fetch any readable files from the repository.");
+      }
+
+      const finalContextMessage: ChatMessage = {
+           id: `msg-${Date.now()}-system-complete`,
+           role: ChatMessageRole.SYSTEM,
+           content: `GitHub context created from ${fetchedFilesCount} file(s). You can now ask questions about the repository.`,
+           timestamp: new Date(),
+      };
+
+      await updateChatSession(rawCurrentChatSession.id, session => session ? ({
+          ...session,
+          githubRepoContext: { url: cleanUrlString, contextText: contextBuilder },
+          messages: [...session.messages.filter(m => m.id !== processingMessage.id), finalContextMessage],
+      }) : null);
+      
+      ui.showToast("GitHub repository context loaded!", "success");
+
+    } catch (error: any) {
+      console.error("Error processing GitHub repo:", error);
+      const errorMessage: ChatMessage = {
+        id: `msg-${Date.now()}-system-error`,
+        role: ChatMessageRole.SYSTEM,
+        content: `Error loading GitHub context: ${error.message}`,
+        timestamp: new Date(),
+      };
+      await updateChatSession(rawCurrentChatSession.id, session => session ? ({
+        ...session,
+        messages: [...session.messages.filter(m => m.id !== processingMessage.id), errorMessage]
+      }) : null);
+      ui.showToast(`Error: ${error.message}`, "error");
+    }
+  }, [rawCurrentChatSession, updateChatSession, ui]);
 
   const performActualAudioCacheReset = useCallback(async (sessionId: string, messageId: string) => {
     await updateChatSession(sessionId, session => {
@@ -289,6 +407,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     performActualAudioCacheReset,
     handleInsertEmptyMessageAfter: messageInjection.handleInsertEmptyMessageAfter,
     handleDeleteMultipleMessages,
+    handleSetGithubRepo,
   }), [
     setChatHistory, setCurrentChatId, updateChatSession, handleNewChat, handleSelectChat, handleDeleteChat,
     gemini.handleSendMessage, gemini.handleContinueFlow, gemini.handleCancelGeneration,
@@ -305,7 +424,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     chatInteractions.handleLoadMoreDisplayMessages, chatInteractions.handleLoadAllDisplayMessages,
     chatInteractions.handleClearApiLogs, chatInteractions.handleClearChatCacheForCurrentSession,
     chatInteractions.handleReUploadAttachment, performActualAudioCacheReset,
-    messageInjection.handleInsertEmptyMessageAfter, handleDeleteMultipleMessages
+    messageInjection.handleInsertEmptyMessageAfter, handleDeleteMultipleMessages, handleSetGithubRepo
   ]);
   
   (actionsValue.triggerAutoPlayForNewMessage as any)._placeholder = true;

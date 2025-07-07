@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, ReactNode, useMemo } from 'react';
 import { useAppUI, ToastInfo } from '../hooks/useAppUI.ts';
 import { useAppModals, FilenameInputModalTriggerProps } from '../hooks/useAppModals.ts';
@@ -70,6 +71,11 @@ interface UIContextType {
   isApiKeyModalOpen: boolean;
   openApiKeyModal: () => void;
   closeApiKeyModal: () => void;
+
+  // For GitHubImportModal
+  isGitHubImportModalOpen: boolean;
+  openGitHubImportModal: () => void;
+  closeGitHubImportModal: () => void;
 
   // For multi-select
   isSelectionModeActive: boolean;

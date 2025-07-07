@@ -1,5 +1,3 @@
-
-
 // Fix: Removed incorrect import of 'ChatSession as GeminiChatSessionSDK'. Chat config is GenerationConfig.
 import { GoogleGenAI, Chat, GenerateContentResponse, Part, SafetySetting as GeminiSafetySettingFromSDK, Content, GenerationConfig as GeminiGenerationConfigSDK, FileData } from "@google/genai"; // Use SDK's SafetySetting type
 import { ChatMessage, ChatMessageRole, GeminiSettings, GeminiHistoryEntry, GroundingChunk, Attachment, ApiRequestLog, ApiRequestPayload, AICharacter, LoggedGeminiGenerationConfig, FileUploadResult, GeminiFileResource, AttachmentUploadState } from '../types.ts';
@@ -537,7 +535,8 @@ export async function getFullChatResponse(
   logApiRequestCallback: LogApiRequestCallback,
   signal?: AbortSignal,
   settingsOverride?: Partial<GeminiSettings & { _characterIdForAPICall?: string }>, 
-  allAiCharactersInSession?: AICharacter[]
+  allAiCharactersInSession?: AICharacter[],
+  githubRepoContextText?: string
 ): Promise<void> {
   if (!apiKey) {
     onError("API Key is not configured. Please add a key in Settings.", false);
@@ -571,6 +570,21 @@ export async function getFullChatResponse(
       const formattedTimestamp = new Date().toLocaleString(); 
       effectiveUserText = `[USER at ${formattedTimestamp}] ${effectiveUserText}`;
   }
+  
+  if (githubRepoContextText) {
+    // Prepend the fetched code context to the user's message.
+    effectiveUserText = `${githubRepoContextText}\n---\n\nBased on the code context provided above, please answer the following question: ${effectiveUserText}`;
+  }
+
+  const configForChatCreate: any = {};
+  
+  if (combinedSettings.useGoogleSearch) {
+    if(!configForChatCreate.tools) configForChatCreate.tools = [];
+    if (!configForChatCreate.tools.some((tool: any) => 'googleSearch' in tool)) {
+      configForChatCreate.tools.push({googleSearch: {}});
+    }
+  }
+
   if (combinedSettings.urlContext && combinedSettings.urlContext.length > 0 && userMessageInput.text.trim()) {
     const urlContextString = `\n\nProvided URL Context:\n${combinedSettings.urlContext.map(url => `- ${url}`).join('\n')}`;
     effectiveUserText = `${effectiveUserText}${urlContextString}`;
@@ -631,7 +645,7 @@ export async function getFullChatResponse(
     historyForChatInitialization = mapMessagesToGeminiHistoryInternal(currentChatMessages, combinedSettings);
   }
 
-  const configForChatCreate: any = {}; 
+  
   let finalSystemInstructionText: string | undefined = undefined;
 
   if (characterForCall && characterForCall.systemInstruction) { 
@@ -653,9 +667,6 @@ export async function getFullChatResponse(
         category: s.category,
         threshold: s.threshold,
     })) as GeminiSafetySettingFromSDK[];
-  }
-  if (combinedSettings.useGoogleSearch) {
-    configForChatCreate.tools = [{googleSearch: {}}];
   }
   
   if (MODELS_SENDING_THINKING_CONFIG_API.includes(model) && combinedSettings.thinkingBudget !== undefined) {

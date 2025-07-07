@@ -1,4 +1,5 @@
 
+
 import { useState, useCallback } from 'react';
 import { ChatSession, Attachment, AICharacter } from '../types.ts'; // Adjusted paths
 import * as dbService from '../services/dbService.ts';
@@ -91,6 +92,7 @@ export function useSidebarActions({
       createdAt: new Date(),
       lastUpdatedAt: new Date(),
       apiRequestLogs: [],
+      githubRepoContext: originalSession.githubRepoContext ? { ...originalSession.githubRepoContext } : null,
     };
   
     setChatHistory(prev => [duplicatedSession, ...prev].sort((a, b) => new Date(b.lastUpdatedAt).getTime() - new Date(a.lastUpdatedAt).getTime()));
