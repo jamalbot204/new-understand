@@ -1,7 +1,6 @@
-
 import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, memo } from 'react';
 import { useChatState, useChatInteractionStatus, useChatActions } from '../contexts/ChatContext.tsx';
-import { useUIContext } from '../contexts/UIContext.tsx';
+import { useUIStore } from '../stores/uiStore';
 import { ChatMessageRole, AICharacter } from '../types.ts';
 import MessageItem from './MessageItem.tsx';
 import { LOAD_MORE_MESSAGES_COUNT } from '../constants.ts';
@@ -33,7 +32,23 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
         handleReorderCharacters
     } = useChatActions();
 
-    const ui = useUIContext();
+    // Select only the state and actions this component needs from the store.
+    const {
+        toggleSidebar,
+        isSidebarOpen,
+        openCharacterManagementModal,
+        toggleSelectionMode,
+        isSelectionModeActive,
+        showToast,
+    } = useUIStore(state => ({
+        toggleSidebar: state.toggleSidebar,
+        isSidebarOpen: state.isSidebarOpen,
+        openCharacterManagementModal: state.openCharacterManagementModal,
+        toggleSelectionMode: state.toggleSelectionMode,
+        isSelectionModeActive: state.isSelectionModeActive,
+        showToast: state.showToast,
+    }));
+    
     const { activeApiKey } = useApiKeyContext();
 
     const [inputMessage, setInputMessage] = useState('');
@@ -55,7 +70,7 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
         apiKey: activeApiKey?.value || '',
         logApiRequestCallback: logApiRequest,
         isInfoInputModeActive,
-        showToastCallback: ui.showToast,
+        showToastCallback: showToast,
     });
     const {
         selectedFiles,
@@ -69,7 +84,7 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
         getDisplayFileType,
     } = attachmentHandler;
 
-    const visibleMessages = visibleMessagesForCurrentChat || []; // Use pre-sliced messages from context
+    const visibleMessages = visibleMessagesForCurrentChat || [];
     const totalMessagesInSession = currentChatSession ? currentChatSession.messages.length : 0;
 
     const virtualizer = useVirtualizer({
@@ -92,7 +107,7 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
 
     const handleLoadAll = useCallback(() => {
         if (!currentChatSession) return;
-        handleLoadAllDisplayMessages(currentChatSession.id, totalMessagesInSession); // Pass totalMessagesInSession to load all
+        handleLoadAllDisplayMessages(currentChatSession.id, totalMessagesInSession);
         setShowLoadButtonsUI(false);
     }, [currentChatSession, handleLoadAllDisplayMessages, totalMessagesInSession]);
 
@@ -109,7 +124,7 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                             element.classList.remove('ring-2', 'ring-blue-400', 'transition-all', 'duration-1000', 'ease-out');
                         }, 2500);
                     }
-                }, 300); // Delay to allow virtualizer to render the item
+                }, 300);
             };
     
             if (index > -1) {
@@ -121,21 +136,17 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                     if (fullIndex > -1) {
                         handleLoadAll();
                         setTimeout(() => {
-                            // After handleLoadAll, visibleMessages will be the full list.
-                            // The index of the message will be `fullIndex` in the original array.
-                            // We need to re-find the index in case the underlying array changed, though fullIndex should be correct.
                              const finalIndex = chatHistory.find(s => s.id === currentChatSession.id)?.messages.findIndex(m => m.id === messageId) ?? -1;
                              if(finalIndex > -1) {
                                 virtualizer.scrollToIndex(finalIndex, { align: 'center', behavior: 'smooth' });
                                 highlightElement(messageId);
                              }
-                        }, 500); // Allow time for state update and re-render
+                        }, 500);
                     }
                 }
             }
         }
     }), [currentChatSession, visibleMessages, totalMessagesInSession, handleLoadAll, virtualizer, chatHistory]);
-
 
     useEffect(() => {
         setCharactersState(currentChatSession?.aiCharacters || []);
@@ -143,7 +154,6 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
             setIsInfoInputModeActive(false);
         }
     }, [currentChatSession?.aiCharacters, currentChatSession?.isCharacterModeActive, isInfoInputModeActive]);
-
 
     const handleSendMessageClick = useCallback(async (characterId?: string) => {
         const currentInputMessageValue = inputMessage;
@@ -153,7 +163,7 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
         if (isLoading || !currentChatSession || autoSendHook.isAutoSendingActive) return;
 
         if (isAnyFileStillProcessing()) {
-            ui.showToast("Some files are still being processed. Please wait for them to complete before sending.", "error");
+            showToast("Some files are still being processed. Please wait for them to complete before sending.", "error");
             return;
         }
 
@@ -182,7 +192,7 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
         }
 
         await handleSendMessage(currentInputMessageValue, attachmentsToSend, undefined, characterId, temporaryContextFlag);
-    }, [inputMessage, getValidAttachmentsToSend, isLoading, currentChatSession, autoSendHook, isAnyFileStillProcessing, ui, isCharacterMode, isInfoInputModeActive, handleSendMessage, resetSelectedFiles]);
+    }, [inputMessage, getValidAttachmentsToSend, isLoading, currentChatSession, autoSendHook, isAnyFileStillProcessing, showToast, isCharacterMode, isInfoInputModeActive, handleSendMessage, resetSelectedFiles]);
 
     const handleContinueFlowClick = useCallback(async () => {
         if (isLoading || !currentChatSession || currentChatSession.messages.length === 0 || isCharacterMode || autoSendHook.isAutoSendingActive) return;
@@ -266,11 +276,10 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
         const [removed] = currentChars.splice(draggedIndex, 1);
         currentChars.splice(targetIndex, 0, removed);
         
-        setCharactersState(currentChars); // Update local state immediately for responsiveness
-        await handleReorderCharacters(currentChars); // Update context and persist
+        setCharactersState(currentChars);
+        await handleReorderCharacters(currentChars);
         draggedCharRef.current = null;
     }, [isReorderingActive, currentChatSession, characters, handleReorderCharacters]);
-
 
     const handleDragEnd = useCallback((e: React.DragEvent<HTMLButtonElement>) => {
         if (!isReorderingActive) return;
@@ -307,10 +316,10 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
         <div className="flex flex-col h-full bg-transparent">
             <header className="p-3 sm:p-4 border-b border-[var(--aurora-border)] flex items-center space-x-3 sticky top-0 bg-transparent z-20">
                 <button
-                    onClick={ui.handleToggleSidebar}
+                    onClick={toggleSidebar}
                     className="p-1.5 text-[var(--aurora-text-secondary)] hover:text-[var(--aurora-text-primary)] bg-white/5 rounded-md focus:outline-none focus:ring-2 ring-[var(--aurora-accent-primary)] transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]"
-                    aria-label={ui.isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
-                    title={ui.isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+                    aria-label={isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
+                    title={isSidebarOpen ? "Hide Sidebar" : "Show Sidebar"}
                 >
                     <Bars3Icon className="w-5 h-5" />
                 </button>
@@ -324,12 +333,12 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                         {currentChatSession && <ManualSaveButton onManualSave={handleManualSave} disabled={!currentChatSession || isLoading} />}
                         {currentChatSession && (
                             <button
-                                onClick={ui.toggleSelectionMode}
-                                className={`p-1.5 rounded-md transition-all focus:outline-none focus:ring-2 ring-[var(--aurora-accent-primary)] ${ui.isSelectionModeActive ? 'bg-[var(--aurora-accent-primary)] text-white hover:shadow-[0_0_12px_2px_rgba(90,98,245,0.6)]' : 'text-[var(--aurora-text-secondary)] hover:text-white hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]'}`}
-                                title={ui.isSelectionModeActive ? "Done Selecting" : "Select Multiple Messages"}
-                                aria-label={ui.isSelectionModeActive ? "Exit multiple selection mode" : "Enter multiple selection mode"}
+                                onClick={toggleSelectionMode}
+                                className={`p-1.5 rounded-md transition-all focus:outline-none focus:ring-2 ring-[var(--aurora-accent-primary)] ${isSelectionModeActive ? 'bg-[var(--aurora-accent-primary)] text-white hover:shadow-[0_0_12px_2px_rgba(90,98,245,0.6)]' : 'text-[var(--aurora-text-secondary)] hover:text-white hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]'}`}
+                                title={isSelectionModeActive ? "Done Selecting" : "Select Multiple Messages"}
+                                aria-label={isSelectionModeActive ? "Exit multiple selection mode" : "Enter multiple selection mode"}
                             >
-                                {ui.isSelectionModeActive ? <XCircleIcon className="w-5 h-5" /> : <ClipboardDocumentCheckIcon className="w-5 h-5" />}
+                                {isSelectionModeActive ? <XCircleIcon className="w-5 h-5" /> : <ClipboardDocumentCheckIcon className="w-5 h-5" />}
                             </button>
                         )}
                     </div>
@@ -340,7 +349,7 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                             {isReorderingActive ? <CheckIcon className="w-4 h-4 sm:mr-1.5" /> : <ArrowsUpDownIcon className="w-4 h-4 sm:mr-1.5" />}
                             <span className="hidden sm:inline">{isReorderingActive ? "Done" : "Edit Order"}</span>
                         </button>
-                        <button onClick={ui.openCharacterManagementModal} className="flex items-center p-1.5 sm:px-3 sm:py-1.5 text-xs font-medium text-purple-300 bg-purple-600 bg-opacity-30 rounded-md transition-all hover:shadow-[0_0_12px_2px_rgba(156,51,245,0.6)]" title="Manage AI Characters" disabled={isReorderingActive}>
+                        <button onClick={openCharacterManagementModal} className="flex items-center p-1.5 sm:px-3 sm:py-1.5 text-xs font-medium text-purple-300 bg-purple-600 bg-opacity-30 rounded-md transition-all hover:shadow-[0_0_12px_2px_rgba(156,51,245,0.6)]" title="Manage AI Characters" disabled={isReorderingActive}>
                             <PlusIcon className="w-4 h-4 sm:mr-1.5" />
                             <span className="hidden sm:inline">Manage Characters</span>
                         </button>
@@ -348,7 +357,7 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                 )}
             </header>
 
-            <div ref={messageListRef} onScroll={handleScroll} className={`flex-1 p-4 sm:p-6 overflow-y-auto relative ${ui.isSelectionModeActive ? 'pb-20' : ''}`} role="log" aria-live="polite">
+            <div ref={messageListRef} onScroll={handleScroll} className={`flex-1 p-4 sm:p-6 overflow-y-auto relative ${isSelectionModeActive ? 'pb-20' : ''}`} role="log" aria-live="polite">
                 {currentChatSession && visibleMessages.length < totalMessagesInSession && (
                     <div className="sticky top-2 w-full z-10 flex flex-col items-center space-y-2 my-2 h-20 justify-center">
                         <div className={`transition-opacity duration-300 ${showLoadButtonsUI ? 'opacity-100' : 'opacity-0'}`}>
@@ -493,14 +502,14 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                         <input type="file" multiple ref={fileInputRef} onChange={(e) => handleFileSelection(e.target.files)} className="hidden" accept="image/*,video/*,.pdf,text/*,application/json" />
                         <button 
                             onClick={() => fileInputRef.current?.click()} 
-                            disabled={!currentChatSession || isInfoInputModeActive || autoSendHook.isAutoSendingActive || ui.isSelectionModeActive} 
+                            disabled={!currentChatSession || isInfoInputModeActive || autoSendHook.isAutoSendingActive || isSelectionModeActive} 
                             className="p-2.5 sm:p-3 m-1 text-gray-300 hover:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)] focus:outline-none" 
                             title="Attach files" 
                             aria-label="Attach files">
                             <PaperClipIcon className="w-5 h-5" />
                         </button>
                         {isCharacterMode && (
-                            <button onClick={toggleInfoInputMode} disabled={isLoading || !currentChatSession || autoSendHook.isAutoSendingActive || ui.isSelectionModeActive} className={`p-2.5 sm:p-3 m-1 text-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow focus:outline-none ${isInfoInputModeActive ? 'bg-yellow-500/20 text-yellow-300 hover:shadow-[0_0_12px_2px_rgba(234,179,8,0.6)]' : 'hover:text-white hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]'}`} title={isInfoInputModeActive ? "Disable One-Time Info Input" : "Enable One-Time Info Input"} aria-label={isInfoInputModeActive ? "Disable One-Time Info Input" : "Enable One-Time Info Input"} aria-pressed={isInfoInputModeActive}>
+                            <button onClick={toggleInfoInputMode} disabled={isLoading || !currentChatSession || autoSendHook.isAutoSendingActive || isSelectionModeActive} className={`p-2.5 sm:p-3 m-1 text-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow focus:outline-none ${isInfoInputModeActive ? 'bg-yellow-500/20 text-yellow-300 hover:shadow-[0_0_12px_2px_rgba(234,179,8,0.6)]' : 'hover:text-white hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]'}`} title={isInfoInputModeActive ? "Disable One-Time Info Input" : "Enable One-Time Info Input"} aria-label={isInfoInputModeActive ? "Disable One-Time Info Input" : "Enable One-Time Info Input"} aria-pressed={isInfoInputModeActive}>
                                 <InfoIcon className="w-5 h-5" />
                             </button>
                         )}
@@ -513,10 +522,10 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                             onChange={handleInputChange} 
                             onKeyPress={handleKeyPress} 
                             onPaste={handlePaste} 
-                            disabled={!currentChatSession || autoSendHook.isAutoSendingActive || ui.isSelectionModeActive} 
+                            disabled={!currentChatSession || autoSendHook.isAutoSendingActive || isSelectionModeActive} 
                             aria-label="Chat input" />
                         {!isCharacterMode && (
-                            <button onClick={handleContinueFlowClick} disabled={isLoading || !currentChatSession || (currentChatSession && currentChatSession.messages.length === 0) || isAnyFileStillProcessing() || isCharacterMode || autoSendHook.isAutoSendingActive || ui.isSelectionModeActive} className="p-2.5 sm:p-3 m-1 text-white bg-teal-600/50 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow hover:shadow-[0_0_12px_2px_rgba(13,148,136,0.6)] focus:outline-none" title="Continue Flow" aria-label="Continue flow">
+                            <button onClick={handleContinueFlowClick} disabled={isLoading || !currentChatSession || (currentChatSession && currentChatSession.messages.length === 0) || isAnyFileStillProcessing() || isCharacterMode || autoSendHook.isAutoSendingActive || isSelectionModeActive} className="p-2.5 sm:p-3 m-1 text-white bg-teal-600/50 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow hover:shadow-[0_0_12px_2px_rgba(13,148,136,0.6)] focus:outline-none" title="Continue Flow" aria-label="Continue flow">
                                 <FlowRightIcon className="w-5 h-5" />
                             </button>
                         )}
@@ -525,7 +534,7 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                                 <StopIcon className="w-5 h-5" />
                             </button>
                         ) : (
-                            <button onClick={() => handleSendMessageClick()} disabled={!hasValidInputForMainSend || !currentChatSession || isAnyFileStillProcessing() || isCharacterMode || autoSendHook.isAutoSendingActive || ui.isSelectionModeActive} className={`p-2.5 sm:p-3 m-1 text-white bg-[var(--aurora-accent-primary)] rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow hover:shadow-[0_0_12px_2px_rgba(90,98,245,0.6)] focus:outline-none ${isCharacterMode ? 'hidden' : ''}`} aria-label="Send message" title="Send message">
+                            <button onClick={() => handleSendMessageClick()} disabled={!hasValidInputForMainSend || !currentChatSession || isAnyFileStillProcessing() || isCharacterMode || autoSendHook.isAutoSendingActive || isSelectionModeActive} className={`p-2.5 sm:p-3 m-1 text-white bg-[var(--aurora-accent-primary)] rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow hover:shadow-[0_0_12px_2px_rgba(90,98,245,0.6)] focus:outline-none ${isCharacterMode ? 'hidden' : ''}`} aria-label="Send message" title="Send message">
                                 <SendIcon className="w-5 h-5" />
                             </button>
                         )}

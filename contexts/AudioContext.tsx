@@ -1,14 +1,10 @@
-
-
-
-
 import React, { createContext, useContext, useRef, ReactNode, useEffect, useCallback, useMemo } from 'react';
-import { AudioPlayerState, ChatMessage } from '../types.ts'; // Added ChatMessage
+import { AudioPlayerState, ChatMessage } from '../types.ts';
 import { useAudioPlayer } from '../hooks/useAudioPlayer.ts';
 import { useAudioControls } from '../hooks/useAudioControls.ts';
-import { useChatState, useChatActions } from './ChatContext.tsx'; // Updated import
-import { useUIContext } from './UIContext.tsx';
-import { useAutoPlay } from '../hooks/useAutoPlay.ts'; // Import the new hook
+import { useChatState, useChatActions } from './ChatContext.tsx';
+import { useUIStore } from '../stores/uiStore';
+import { useAutoPlay } from '../hooks/useAutoPlay.ts';
 import { splitTextForTts } from '../services/utils.ts';
 import { MAX_WORDS_PER_TTS_SEGMENT } from '../constants.ts';
 import { useApiKeyContext } from './ApiKeyContext.tsx';
@@ -40,7 +36,14 @@ const AudioContext = createContext<AudioContextType | null>(null);
 export const AudioProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { currentChatSession, logApiRequest } = useChatState();
   const { updateChatSession } = useChatActions();
-  const ui = useUIContext();
+  
+  // Select only the actions needed from the new store
+  const { showToast, requestResetAudioCacheConfirmation, toggleSelectionMode } = useUIStore(state => ({
+    showToast: state.showToast,
+    requestResetAudioCacheConfirmation: state.requestResetAudioCacheConfirmation,
+    toggleSelectionMode: state.toggleSelectionMode,
+  }));
+
   const { activeApiKey } = useApiKeyContext();
   const apiKey = activeApiKey?.value || '';
 
@@ -71,9 +74,9 @@ export const AudioProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     currentChatSession: currentChatSession,
     updateChatSession: updateChatSession,
     logApiRequest: logApiRequest,
-    showToast: ui.showToast,
+    showToast: showToast,
     audioPlayerHook: audioPlayer,
-    requestResetAudioCacheConfirmationModal: ui.requestResetAudioCacheConfirmation,
+    requestResetAudioCacheConfirmationModal: requestResetAudioCacheConfirmation,
     isAutoFetchingSegment: () => false,
     onCancelAutoFetchSegment: () => {},
   });
@@ -109,9 +112,9 @@ export const AudioProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return { ...session, messages: newMessages };
     });
 
-    ui.showToast(`Audio cache reset for ${messageIds.length} message(s).`, "success");
-    ui.toggleSelectionMode(); // This also clears selection
-  }, [currentChatSession, updateChatSession, audioPlayer, ui.showToast, ui.toggleSelectionMode]);
+    showToast(`Audio cache reset for ${messageIds.length} message(s).`, "success");
+    toggleSelectionMode(); // This also clears selection
+  }, [currentChatSession, updateChatSession, audioPlayer, showToast, toggleSelectionMode]);
 
 
   const value = useMemo(() => ({

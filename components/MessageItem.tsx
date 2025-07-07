@@ -9,7 +9,7 @@ import { ChatMessage, ChatMessageRole, GroundingChunk, Attachment } from '../typ
 import ResetAudioCacheButton from './ResetAudioCacheButton.tsx';
 import RefreshAttachmentButton from './RefreshAttachmentButton.tsx';
 import { useChatState, useChatActions, useChatInteractionStatus } from '../contexts/ChatContext.tsx';
-import { useUIContext } from '../contexts/UIContext.tsx';
+import { useUIStore } from '../stores/uiStore';
 import { useAudioContext } from '../contexts/AudioContext.tsx';
 import { MAX_WORDS_PER_TTS_SEGMENT, MESSAGE_CONTENT_SNIPPET_THRESHOLD } from '../constants.ts';
 import {
@@ -45,12 +45,7 @@ interface MessageItemProps {
   onToggleExpansion: (messageId: string, type: 'content' | 'thoughts') => void;
 }
 
-// ==================================================================
-// NEW & CORRECTED: Markdown Renderers
-// This object defines how to render specific markdown elements.
-// ==================================================================
 const markdownRenderers = {
-    // This function handles both inline `code` and fenced ```code blocks```
     code({ node, inline, className, children, ...props }: any) {
         const [isCodeCopied, setIsCodeCopied] = useState(false);
         const codeString = String(children).replace(/\n$/, '');
@@ -68,8 +63,6 @@ const markdownRenderers = {
         const match = /language-(\w+)/.exec(className || '');
         const lang = match ? match[1] : 'text';
 
-        // If it's NOT inline, it's a fenced block. Render with full syntax highlighting.
-        // If it IS inline, the `else` block will handle it.
         return !inline && match ? (
             <div className="relative group/codeblock my-2 rounded-md overflow-hidden shadow border border-white/10 bg-[#0A0910]">
                 <div className="flex justify-between items-center px-4 py-1.5 bg-black/20">
@@ -93,18 +86,15 @@ const markdownRenderers = {
                 </SyntaxHighlighter>
             </div>
         ) : (
-            // This renders for inline `code` and for ``` blocks without a language
             <code className="bg-black/30 text-indigo-300 rounded font-mono border border-white/10 px-1 py-0.5" {...props}>
                 {children}
             </code>
         );
     },
-    // This ensures paragraphs are rendered as divs, which helps with styling.
     p(props: any) {
         return <div {...props} />;
     }
 };
-
 
 const DropdownMenuItem: React.FC<{
     onClick: () => void;
@@ -165,7 +155,25 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
     handleActualCopyMessage, handleDeleteSingleMessageOnly, handleRegenerateAIMessage,
     handleRegenerateResponseForUserMessage, handleReUploadAttachment, handleInsertEmptyMessageAfter
   } = useChatActions();
-  const ui = useUIContext();
+  
+  const {
+    openEditPanel,
+    requestResetAudioCacheConfirmation,
+    openFilenameInputModal,
+    isSelectionModeActive,
+    selectedMessageIds,
+    toggleMessageSelection,
+    requestDeleteConfirmation,
+  } = useUIStore(state => ({
+    openEditPanel: state.openEditPanel,
+    requestResetAudioCacheConfirmation: state.requestResetAudioCacheConfirmation,
+    openFilenameInputModal: state.openFilenameInputModal,
+    isSelectionModeActive: state.isSelectionModeActive,
+    selectedMessageIds: state.selectedMessageIds,
+    toggleMessageSelection: state.toggleMessageSelection,
+    requestDeleteConfirmation: state.requestDeleteConfirmation,
+  }));
+  
   const audio = useAudioContext();
 
   const isUser = message.role === ChatMessageRole.USER;
@@ -181,7 +189,6 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
 
   const markdownContentRef = useRef<HTMLDivElement>(null);
 
-  const { isSelectionModeActive, selectedMessageIds, toggleMessageSelection } = ui;
   const isSelected = isSelectionModeActive && selectedMessageIds.has(message.id);
 
   let displayContent = message.content;
@@ -241,7 +248,6 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
       });
     }
   }, [highlightTerm, contentToRender, isContentExpanded, message.role]);
-
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -332,10 +338,9 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
     }
   }, [isOptionsMenuOpen, isUser, message.id, chatScrollContainerRef, message.role]);
 
-
   const handleEditClick = () => {
     if (!currentChatSession) return;
-    ui.openEditPanel({
+    openEditPanel({
         sessionId: currentChatSession.id,
         messageId: message.id,
         originalContent: message.content,
@@ -382,10 +387,9 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
     setIsOptionsMenuOpen(false);
   };
 
-
   const handleResetCacheClick = () => {
     if (!currentChatSession) return;
-    ui.requestResetAudioCacheConfirmation(currentChatSession.id, message.id);
+    requestResetAudioCacheConfirmation(currentChatSession.id, message.id);
     setIsOptionsMenuOpen(false);
   };
 
@@ -401,10 +405,10 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
     const firstWords = words.slice(0, 7).join(' ');
     const defaultNameSuggestion = sanitizeFilename(firstWords, 50) || 'audio_download';
 
-    ui.openFilenameInputModal({
+    openFilenameInputModal({
       defaultFilename: defaultNameSuggestion,
       promptMessage: "Enter filename for audio (extension .mp3 will be added):",
-      onSubmit: (userProvidedName) => {
+      onSubmit: (userProvidedName: string) => {
         const finalName = userProvidedName.trim() === '' ? defaultNameSuggestion : userProvidedName.trim();
         audio.handleDownloadAudio(currentChatSession!.id, messageId, finalName);
       }
@@ -480,7 +484,6 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
     textSegmentsForTts.some((_, partIdx) => audio.isApiFetchingThisSegment(`${message.id}_part_${partIdx}`)) ||
     (numExpectedTtsParts <= 1 && audio.isApiFetchingThisSegment(message.id)) ||
     (audio.audioPlayerState.currentMessageId?.startsWith(message.id) && (audio.audioPlayerState.isLoading || audio.audioPlayerState.isPlaying));
-
 
   const renderPlayButtonForSegment = (partIndexInput?: number) => {
     const isMainContextButton = partIndexInput === undefined;
@@ -843,7 +846,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                                 disabled={isAnyAudioOperationActiveForMessage}
                             />
                             <DropdownMenuItem
-                                onClick={() => { ui.requestDeleteConfirmation(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
+                                onClick={() => { requestDeleteConfirmation(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
                                 icon={TrashIcon}
                                 label="Delete Message & History"
                                 className="text-red-400"

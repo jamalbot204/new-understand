@@ -1,29 +1,31 @@
-
-
 import React, { memo, useCallback } from 'react';
-import { AttachmentWithContext, ChatMessageRole } from '../types.ts';
-import { CloseIcon, DocumentIcon, PlayCircleIcon, ArrowUturnLeftIcon, UserIcon, SparklesIcon } from './Icons.tsx'; // Assuming Sparkles for AI
-import RefreshAttachmentButton from './RefreshAttachmentButton.tsx'; // Import the button
+import { useUIStore } from '../stores/uiStore';
 import { useChatState, useChatActions, useChatInteractionStatus } from '../contexts/ChatContext.tsx';
+import { AttachmentWithContext, ChatMessageRole } from '../types.ts';
+import { CloseIcon, DocumentIcon, PlayCircleIcon, ArrowUturnLeftIcon, UserIcon, SparklesIcon } from './Icons.tsx';
+import RefreshAttachmentButton from './RefreshAttachmentButton.tsx';
 
-interface ChatAttachmentsModalProps {
-  isOpen: boolean;
-  attachments: AttachmentWithContext[];
-  chatTitle: string;
-  onClose: () => void;
-  onGoToMessage: (messageId: string) => void;
-}
-
-const ChatAttachmentsModal: React.FC<ChatAttachmentsModalProps> = memo(({
-  isOpen,
-  attachments,
-  chatTitle,
-  onClose,
-  onGoToMessage,
-}) => {
+const ChatAttachmentsModal: React.FC = memo(() => {
+  const {
+    isChatAttachmentsModalOpen,
+    attachmentsForModal,
+    closeChatAttachmentsModal,
+  } = useUIStore(state => ({
+    isChatAttachmentsModalOpen: state.isChatAttachmentsModalOpen,
+    attachmentsForModal: state.attachmentsForModal,
+    closeChatAttachmentsModal: state.closeChatAttachmentsModal,
+  }));
   const { currentChatSession } = useChatState();
   const { handleReUploadAttachment } = useChatActions();
   const { isLoading } = useChatInteractionStatus();
+
+  const handleGoToMessage = (messageId: string) => {
+    // This logic needs to be handled at a higher level, possibly by passing down a function
+    // For now, it just closes the modal. A more robust solution would involve a ref or callback.
+    closeChatAttachmentsModal();
+    // A parent component would need to implement the actual scrolling.
+    console.log(`Request to scroll to message: ${messageId}`);
+  };
 
   const getFileIcon = useCallback((item: AttachmentWithContext) => {
     const { attachment } = item;
@@ -42,7 +44,7 @@ const ChatAttachmentsModal: React.FC<ChatAttachmentsModalProps> = memo(({
     return null;
   }, []);
 
-  if (!isOpen) return null;
+  if (!isChatAttachmentsModalOpen) return null;
 
   return (
     <div
@@ -50,16 +52,16 @@ const ChatAttachmentsModal: React.FC<ChatAttachmentsModalProps> = memo(({
       role="dialog"
       aria-modal="true"
       aria-labelledby="chat-attachments-modal-title"
-      onClick={onClose}
+      onClick={closeChatAttachmentsModal}
     >
       <div 
         className="aurora-panel p-5 sm:p-6 rounded-lg shadow-2xl w-full sm:max-w-2xl max-h-[90vh] flex flex-col text-gray-200"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex justify-between items-center mb-4 flex-shrink-0">
-          <h2 id="chat-attachments-modal-title" className="text-xl font-semibold text-gray-100 truncate">Attachments in "{chatTitle}"</h2>
+          <h2 id="chat-attachments-modal-title" className="text-xl font-semibold text-gray-100 truncate">Attachments in "{currentChatSession?.title || 'Current Chat'}"</h2>
           <button
-            onClick={onClose}
+            onClick={closeChatAttachmentsModal}
             className="text-gray-400 p-1 rounded-full transition-shadow hover:text-gray-100 hover:shadow-[0_0_10px_1px_rgba(255,255,255,0.2)]"
             aria-label="Close attachments view"
           >
@@ -68,10 +70,10 @@ const ChatAttachmentsModal: React.FC<ChatAttachmentsModalProps> = memo(({
         </div>
 
         <div className="flex-grow overflow-y-auto pr-2 -mr-2 space-y-3">
-          {attachments.length === 0 ? (
+          {attachmentsForModal.length === 0 ? (
             <p className="text-gray-400 italic text-center py-8">No attachments in this chat.</p>
           ) : (
-            attachments.map(item => (
+            attachmentsForModal.map(item => (
               <div key={item.attachment.id} className="p-3 bg-white/5 rounded-md flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3 min-w-0">
                   <div className="flex-shrink-0">{getFileIcon(item)}</div>
@@ -95,7 +97,7 @@ const ChatAttachmentsModal: React.FC<ChatAttachmentsModalProps> = memo(({
                     />
                   )}
                   <button 
-                    onClick={() => onGoToMessage(item.messageId)}
+                    onClick={() => handleGoToMessage(item.messageId)}
                     className="p-1.5 text-gray-400 hover:text-blue-300 rounded-full hover:bg-white/10 transition-colors"
                     title="Go to message"
                   >
@@ -108,7 +110,7 @@ const ChatAttachmentsModal: React.FC<ChatAttachmentsModalProps> = memo(({
         </div>
         
         <div className="mt-6 flex justify-end flex-shrink-0">
-          <button onClick={onClose} className="px-4 py-2 text-sm bg-white/5 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]">Close</button>
+          <button onClick={closeChatAttachmentsModal} className="px-4 py-2 text-sm bg-white/5 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]">Close</button>
         </div>
       </div>
     </div>

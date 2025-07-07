@@ -1,6 +1,6 @@
 import React, { memo, useCallback } from 'react';
 import { useApiKeyContext } from '../contexts/ApiKeyContext.tsx';
-import { useUIContext } from '../contexts/UIContext.tsx';
+import { useUIStore } from '../stores/uiStore';
 import { ApiKey } from '../types.ts';
 import { PlusIcon, TrashIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, ChevronDoubleUpIcon, ChevronDoubleDownIcon, EyeIcon, EyeOffIcon, ArrowPathIcon } from './Icons.tsx';
 
@@ -10,8 +10,6 @@ const ReorderButton: React.FC<{ onClick: () => void, disabled: boolean, title: s
     </button>
 ));
 
-
-// Sub-component for a single API key item
 const ApiKeyItem: React.FC<{
   apiKey: ApiKey;
   isFirst: boolean;
@@ -22,8 +20,6 @@ const ApiKeyItem: React.FC<{
   onMove: (id: string, direction: 'up' | 'down') => void;
   onMoveToEdge: (id: string, edge: 'top' | 'bottom') => void;
 }> = memo(({ apiKey, isFirst, isLast, isKeyVisible, onUpdate, onDelete, onMove, onMoveToEdge }) => {
-  useUIContext();
-
   const handleDeleteClick = useCallback(() => {
     onDelete(apiKey.id);
   }, [onDelete, apiKey.id]);
@@ -78,10 +74,9 @@ const ApiKeyItem: React.FC<{
   );
 });
 
-
 const ApiKeyManager: React.FC = memo(() => {
   const { apiKeys, isKeyVisible, addApiKey, updateApiKey, toggleKeyVisibility, moveKey, moveKeyToEdge, isRotationEnabled, toggleRotation } = useApiKeyContext();
-  const { requestDeleteConfirmation } = useUIContext();
+  const requestDeleteConfirmation = useUIStore(state => state.requestDeleteConfirmation);
 
   const handleDelete = useCallback((id: string) => {
     requestDeleteConfirmation(id, 'api-key');

@@ -1,19 +1,22 @@
 import React, { memo } from 'react';
+import { useUIStore } from '../stores/uiStore';
 import { CloseIcon, KeyIcon } from './Icons.tsx';
 import ApiKeyManager from './ApiKeyManager.tsx';
 
-interface ApiKeyModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-}
+const ApiKeyModal: React.FC = memo(() => {
+  // Select ONLY the state and actions this component needs from the store.
+  // It is now self-sufficient.
+  const { isApiKeyModalOpen, closeApiKeyModal } = useUIStore(state => ({
+    isApiKeyModalOpen: state.isApiKeyModalOpen,
+    closeApiKeyModal: state.closeApiKeyModal,
+  }));
 
-const ApiKeyModal: React.FC<ApiKeyModalProps> = memo(({ isOpen, onClose }) => {
-  if (!isOpen) return null;
+  if (!isApiKeyModalOpen) return null;
 
   return (
     <div 
         className="fixed inset-0 bg-black/60 z-50 flex justify-center items-center p-4 backdrop-blur-md" 
-        onClick={onClose}
+        onClick={closeApiKeyModal}
         role="dialog"
         aria-modal="true"
         aria-labelledby="api-key-modal-title"
@@ -28,7 +31,7 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = memo(({ isOpen, onClose }) => {
             API Key Management
           </h2>
           <button
-            onClick={onClose}
+            onClick={closeApiKeyModal}
             className="text-gray-400 p-1 rounded-full transition-shadow hover:text-gray-100 hover:shadow-[0_0_10px_1px_rgba(255,255,255,0.2)]"
             aria-label="Close API Key Management"
           >
@@ -45,7 +48,7 @@ const ApiKeyModal: React.FC<ApiKeyModalProps> = memo(({ isOpen, onClose }) => {
 
         <div className="mt-8 flex justify-end flex-shrink-0">
           <button 
-            onClick={onClose} 
+            onClick={closeApiKeyModal} 
             type="button" 
             className="px-4 py-2 text-sm font-medium text-gray-300 bg-white/5 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]"
           >

@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
-import { useUIContext } from '../contexts/UIContext.tsx';
+import { useUIStore } from '../stores/uiStore';
 import { GeminiSettings, SafetySetting } from '../types.ts';
 import { DEFAULT_SETTINGS, MODEL_DEFINITIONS, DEFAULT_MODEL_ID, INITIAL_MESSAGES_COUNT, MODELS_SUPPORTING_THINKING_BUDGET_UI, MODELS_SENDING_THINKING_CONFIG_API } from '../constants.ts';
 import { CloseIcon, ShieldCheckIcon, PencilIcon, MagnifyingGlassIcon, LinkIcon, BugAntIcon, ArrowPathIcon, SpeakerWaveIcon, CalculatorIcon, ExportBoxIcon, PlayIcon, BookOpenIcon, FolderOpenIcon, KeyIcon, GitHubIcon, TrashIcon } from './Icons.tsx';
 import SafetySettingsModal from './SafetySettingsModal.tsx';
 import InstructionEditModal from './InstructionEditModal.tsx';
-import TtsSettingsModal from './TtsSettingsModal.tsx';
-import ThinkingBudgetControl from './ThinkingBudgetControl.tsx'; // Import new component
+import ThinkingBudgetControl from './ThinkingBudgetControl.tsx';
 import * as dbService from '../services/dbService.ts';
 import { METADATA_KEYS } from '../services/dbService.ts';
 
@@ -23,11 +22,32 @@ const InstructionButton: React.FC<{
     </div>
 ));
 
-// No more props needed!
 const SettingsPanel: React.FC = memo(() => {
     const { currentChatSession } = useChatState();
     const { updateChatSession, handleClearChatCacheForCurrentSession, handleSetGithubRepo } = useChatActions();
-    const ui = useUIContext();
+    
+    // Select only the state and actions needed from the new store
+    const {
+        isSettingsPanelOpen,
+        closeSettingsPanel,
+        openTtsSettingsModal,
+        openExportConfigurationModal,
+        openChatAttachmentsModal,
+        openApiKeyModal,
+        openGitHubImportModal,
+        openDebugTerminal,
+        showToast,
+    } = useUIStore(state => ({
+        isSettingsPanelOpen: state.isSettingsPanelOpen,
+        closeSettingsPanel: state.closeSettingsPanel,
+        openTtsSettingsModal: state.openTtsSettingsModal,
+        openExportConfigurationModal: state.openExportConfigurationModal,
+        openChatAttachmentsModal: state.openChatAttachmentsModal,
+        openApiKeyModal: state.openApiKeyModal,
+        openGitHubImportModal: state.openGitHubImportModal,
+        openDebugTerminal: state.openDebugTerminal,
+        showToast: state.showToast,
+    }));
 
     const [localSettings, setLocalSettings] = useState<GeminiSettings>(currentChatSession?.settings || DEFAULT_SETTINGS);
     const [localModel, setLocalModel] = useState<string>(currentChatSession?.model || DEFAULT_MODEL_ID);
@@ -37,11 +57,11 @@ const SettingsPanel: React.FC = memo(() => {
     const [instructionModalContent, setInstructionModalContent] = useState('');
 
     useEffect(() => {
-        if (ui.isSettingsPanelOpen && currentChatSession) {
+        if (isSettingsPanelOpen && currentChatSession) {
             setLocalSettings(currentChatSession.settings);
             setLocalModel(currentChatSession.model);
         }
-    }, [ui.isSettingsPanelOpen, currentChatSession]);
+    }, [isSettingsPanelOpen, currentChatSession]);
 
     const estimatedTokens = useMemo(() => {
         if (!currentChatSession?.messages || currentChatSession.messages.length === 0) return 0;
@@ -80,7 +100,7 @@ const SettingsPanel: React.FC = memo(() => {
             const { checked } = e.target as HTMLInputElement;
             setLocalSettings(prev => ({ ...prev, [name]: checked }));
         } else if (name === 'urlContext') {
-            setLocalSettings(prev => ({ ...prev, urlContext: value.split('\\n').map(url => url.trim()).filter(url => url) }));
+            setLocalSettings(prev => ({ ...prev, urlContext: value.split('\n').map(url => url.trim()).filter(url => url) }));
         } else {
             setLocalSettings(prev => ({ ...prev, [name]: value }));
         }
@@ -107,16 +127,16 @@ const SettingsPanel: React.FC = memo(() => {
     const handleSubmit = useCallback(() => {
         if (!currentChatSession) return;
         updateChatSession(currentChatSession.id, session => session ? ({ ...session, settings: localSettings, model: localModel }) : null);
-        ui.closeSettingsPanel();
-    }, [updateChatSession, currentChatSession, localSettings, localModel, ui.closeSettingsPanel]);
+        closeSettingsPanel();
+    }, [updateChatSession, currentChatSession, localSettings, localModel, closeSettingsPanel]);
     
     const handleMakeDefaults = useCallback(async () => {
         await dbService.setAppMetadata(METADATA_KEYS.USER_DEFINED_GLOBAL_DEFAULTS, {
             model: localModel,
             settings: localSettings,
         });
-        ui.showToast("Default settings saved!", "success");
-    }, [localModel, localSettings, ui.showToast]);
+        showToast("Default settings saved!", "success");
+    }, [localModel, localSettings, showToast]);
 
     const resetToDefaults = useCallback(() => {
         setLocalSettings(DEFAULT_SETTINGS);
@@ -128,52 +148,34 @@ const SettingsPanel: React.FC = memo(() => {
         setIsSafetyModalOpen(false);
     }, []);
 
-
-    const handleCustomizeExportClick = useCallback(() => {
-        ui.openExportConfigurationModal();
-    }, [ui]);
-
     const handleViewChatAttachments = useCallback(() => {
         if (currentChatSession) {
-            const attachmentsExist = currentChatSession.messages.some(msg => msg.attachments && msg.attachments.length > 0);
-            if (attachmentsExist) {
-                ui.openChatAttachmentsModal(currentChatSession);
-            } else {
-                ui.showToast("No attachments found in this chat.", "success");
-            }
+            openChatAttachmentsModal(currentChatSession);
         } else {
-            ui.showToast("No active chat session.", "error");
+            showToast("No active chat session.", "error");
         }
-    }, [currentChatSession, ui]);
-
-    const handleOpenApiKeyModal = useCallback(() => {
-        ui.openApiKeyModal();
-    }, [ui]);
-    
-    const handleOpenGitHubImportModal = useCallback(() => {
-        ui.openGitHubImportModal();
-    }, [ui]);
+    }, [currentChatSession, openChatAttachmentsModal, showToast]);
 
     const handleRemoveGithubRepo = useCallback(() => {
         handleSetGithubRepo(null);
     }, [handleSetGithubRepo]);
 
-    if (!ui.isSettingsPanelOpen || !currentChatSession) return null;
+    if (!isSettingsPanelOpen || !currentChatSession) return null;
 
     const showThinkingBudgetControl = MODELS_SUPPORTING_THINKING_BUDGET_UI.includes(localModel);
     const thinkingBudgetActuallyUsedByApi = MODELS_SENDING_THINKING_CONFIG_API.includes(localModel);
 
     return (
         <>
-            <div className="fixed inset-0 bg-black/60 z-40 flex justify-center items-center p-4 backdrop-blur-md" onClick={ui.closeSettingsPanel}>
+            <div className="fixed inset-0 bg-black/60 z-40 flex justify-center items-center p-4 backdrop-blur-md" onClick={closeSettingsPanel}>
                 <div className="aurora-panel p-6 rounded-lg shadow-2xl w-full sm:max-w-lg max-h-[90vh] overflow-y-auto text-gray-200 relative" onClick={(e) => e.stopPropagation()}>
-                    <button onClick={ui.closeSettingsPanel} className="absolute top-3 right-3 text-gray-400 p-1 rounded-full transition-shadow hover:text-gray-100 hover:shadow-[0_0_10px_1px_rgba(255,255,255,0.2)]" aria-label="Close settings"><CloseIcon className="w-6 h-6" /></button>
+                    <button onClick={closeSettingsPanel} className="absolute top-3 right-3 text-gray-400 p-1 rounded-full transition-shadow hover:text-gray-100 hover:shadow-[0_0_10px_1px_rgba(255,255,255,0.2)]" aria-label="Close settings"><CloseIcon className="w-6 h-6" /></button>
                     <h2 className="text-2xl font-semibold mb-6 text-gray-100">Settings</h2>
                     <div className="space-y-6">
                         <div className="border-t border-[var(--aurora-border)] pt-4">
                             <div className="flex justify-between items-center mb-2">
                                 <div className="flex items-center"><KeyIcon className="w-5 h-5 mr-2 text-yellow-400" /><h3 className="text-md font-medium text-gray-300">API Key Management</h3></div>
-                                <button onClick={handleOpenApiKeyModal} className="text-sm text-blue-400 flex items-center transition-all hover:text-blue-300 hover:drop-shadow-[0_0_3px_rgba(147,197,253,0.8)]" aria-label="Manage API Keys">Manage <PencilIcon className="w-3 h-3 ml-1" /></button>
+                                <button onClick={openApiKeyModal} className="text-sm text-blue-400 flex items-center transition-all hover:text-blue-300 hover:drop-shadow-[0_0_3px_rgba(147,197,253,0.8)]" aria-label="Manage API Keys">Manage <PencilIcon className="w-3 h-3 ml-1" /></button>
                             </div>
                             <p className="text-xs text-gray-400">Add, remove, and reorder your Gemini API keys. The top key in the list is the active one.</p>
                         </div>
@@ -198,7 +200,7 @@ const SettingsPanel: React.FC = memo(() => {
                         <div className="pt-2">
                             <div className="flex justify-between items-center mb-2">
                                 <div className="flex items-center"><SpeakerWaveIcon className="w-5 h-5 mr-2 text-gray-400" /><h3 className="text-md font-medium text-gray-300">Text-to-Speech (TTS) settings</h3></div>
-                                <button onClick={ui.openTtsSettingsModal} className="text-sm text-blue-400 flex items-center transition-all hover:text-blue-300 hover:drop-shadow-[0_0_3px_rgba(147,197,253,0.8)]" aria-label="Configure Text-to-Speech settings">Configure <PencilIcon className="w-3 h-3 ml-1" /></button>
+                                <button onClick={openTtsSettingsModal} className="text-sm text-blue-400 flex items-center transition-all hover:text-blue-300 hover:drop-shadow-[0_0_3px_rgba(147,197,253,0.8)]" aria-label="Configure Text-to-Speech settings">Configure <PencilIcon className="w-3 h-3 ml-1" /></button>
                             </div>
                             <p className="text-xs text-gray-400">Configure voice model and other TTS options.</p>
                         </div>
@@ -212,12 +214,11 @@ const SettingsPanel: React.FC = memo(() => {
                         <div className="pt-2">
                             <div className="flex justify-between items-center mb-2">
                                 <div className="flex items-center"><ExportBoxIcon className="w-5 h-5 mr-2 text-gray-400" /><h3 className="text-md font-medium text-gray-300">Export preferences</h3></div>
-                                <button onClick={handleCustomizeExportClick} className="text-sm text-blue-400 flex items-center transition-all hover:text-blue-300 hover:drop-shadow-[0_0_3px_rgba(147,197,253,0.8)]" aria-label="Customize export data">Customize & Export <PencilIcon className="w-3 h-3 ml-1" /></button>
+                                <button onClick={openExportConfigurationModal} className="text-sm text-blue-400 flex items-center transition-all hover:text-blue-300 hover:drop-shadow-[0_0_3px_rgba(147,197,253,0.8)]" aria-label="Customize export data">Customize & Export <PencilIcon className="w-3 h-3 ml-1" /></button>
                             </div>
                             <p className="text-xs text-gray-400">Choose chats and data to include when exporting.</p>
                         </div>
-                         {/* New Chat Attachments Button */}
-                        <div className="pt-2">
+                         <div className="pt-2">
                             <div className="flex justify-between items-center mb-2">
                                 <div className="flex items-center"><FolderOpenIcon className="w-5 h-5 mr-2 text-gray-400" /><h3 className="text-md font-medium text-gray-300">Chat Attachments</h3></div>
                                 <button onClick={handleViewChatAttachments} className="text-sm text-blue-400 flex items-center transition-all hover:text-blue-300 hover:drop-shadow-[0_0_3px_rgba(147,197,253,0.8)]" aria-label="View chat attachments">View <PencilIcon className="w-3 h-3 ml-1" /></button>
@@ -268,7 +269,7 @@ const SettingsPanel: React.FC = memo(() => {
                                         <h4 className="text-sm font-medium text-gray-300 flex items-center"><GitHubIcon className="w-4 h-4 mr-1.5" />GitHub Repository</h4>
                                         {!currentChatSession.githubRepoContext &&
                                             <button
-                                                onClick={handleOpenGitHubImportModal}
+                                                onClick={openGitHubImportModal}
                                                 className="text-sm text-blue-400 flex items-center transition-all hover:text-blue-300 hover:drop-shadow-[0_0_3px_rgba(147,197,253,0.8)]"
                                                 aria-label="Import GitHub Repository"
                                             >
@@ -290,7 +291,7 @@ const SettingsPanel: React.FC = memo(() => {
                                 </div>
                                 <div>
                                     <label htmlFor="urlContext" className="block text-sm font-medium text-gray-300 mb-1 flex items-center">URL Context (Optional - One per line)</label>
-                                    <textarea id="urlContext" name="urlContext" rows={3} className="w-full p-2 aurora-textarea" placeholder="e.g., https://example.com/article1\nhttps://example.com/article2" value={(localSettings.urlContext || []).join('\n')} onChange={handleInputChange} />
+                                    <textarea id="urlContext" name="urlContext" rows={3} className="w-full p-2 aurora-textarea" placeholder="e.g., https://example.com/article1&#x0a;https://example.com/article2" value={(localSettings.urlContext || []).join('\n')} onChange={handleInputChange} />
                                     <p className="text-xs text-gray-400 mt-1">Provide other URLs for the AI to consider as context. One URL per line.</p>
                                 </div>
                             </div>
@@ -316,7 +317,7 @@ const SettingsPanel: React.FC = memo(() => {
                                 <label htmlFor="debugApiRequests" className="ml-2 block text-sm text-gray-300 flex items-center"><BugAntIcon className="w-4 h-4 mr-1.5 text-gray-400" />Enable API Request Logger</label>
                             </div>
                             {currentChatSession.settings.debugApiRequests && (
-                                <button onClick={() => { ui.openDebugTerminal(); ui.closeSettingsPanel(); }} disabled={!(currentChatSession.apiRequestLogs && currentChatSession.apiRequestLogs.length > 0) && !localSettings.debugApiRequests} className="mt-2 flex items-center px-3 py-1.5 text-xs font-medium text-orange-300 bg-orange-600 bg-opacity-30 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(249,115,22,0.6)] disabled:opacity-50 disabled:cursor-not-allowed" title="View API Request Logs for this session">
+                                <button onClick={() => { openDebugTerminal(); closeSettingsPanel(); }} disabled={!(currentChatSession.apiRequestLogs && currentChatSession.apiRequestLogs.length > 0) && !localSettings.debugApiRequests} className="mt-2 flex items-center px-3 py-1.5 text-xs font-medium text-orange-300 bg-orange-600 bg-opacity-30 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(249,115,22,0.6)] disabled:opacity-50 disabled:cursor-not-allowed" title="View API Request Logs for this session">
                                     <BugAntIcon className="w-4 h-4 mr-1.5" />
                                     {currentChatSession.apiRequestLogs && currentChatSession.apiRequestLogs.length > 0 ? 'View API Logs' : (localSettings.debugApiRequests ? 'View API Logs (None Yet)' : 'Enable logging to view logs')}
                                 </button>
@@ -337,7 +338,6 @@ const SettingsPanel: React.FC = memo(() => {
                 </div>
             </div>
             {isSafetyModalOpen && localSettings.safetySettings && (<SafetySettingsModal isOpen={isSafetyModalOpen} currentSafetySettings={localSettings.safetySettings} onClose={() => setIsSafetyModalOpen(false)} onApply={handleApplySafetySettings} />)}
-            {ui.isTtsSettingsModalOpen && <TtsSettingsModal />}
             {isInstructionModalOpen && editingInstructionType && (<InstructionEditModal isOpen={isInstructionModalOpen} title={editingInstructionType === 'systemInstruction' ? "Edit System Instruction" : "Edit User Persona Instruction"} currentInstruction={instructionModalContent} onApply={handleApplyInstructionChange} onClose={() => { setIsInstructionModalOpen(false); setEditingInstructionType(null); }} />)}
         </>
     );

@@ -1,16 +1,45 @@
+// types.ts
 
-
-// Fix: Removed incorrect import of 'ChatSession as GeminiChatSessionSDK'
 import React from 'react';
 import { Content, Part as GeminiPart, SafetySetting as GeminiSafetySettingSDK, Tool } from "@google/genai";
-import { EditMessagePanelAction, EditMessagePanelDetails } from './components/EditMessagePanel.tsx';
+
+// This type was previously in EditMessagePanel.tsx, moving it here to be globally accessible.
+export enum EditMessagePanelAction {
+  CANCEL = 'cancel',
+  SAVE_LOCALLY = 'save_locally',
+  SAVE_AND_SUBMIT = 'save_and_submit',
+  CONTINUE_PREFIX = 'continue_prefix',
+}
+
+// This type was previously in EditMessagePanel.tsx, moving it here to be globally accessible.
+export interface EditMessagePanelDetails {
+  sessionId: string;
+  messageId: string;
+  originalContent: string;
+  role: ChatMessageRole;
+  attachments?: Attachment[];
+}
+
+// This type was previously in useAppUI.ts, moving it here.
+export interface ToastInfo {
+  message: string;
+  type: 'success' | 'error';
+  duration?: number;
+}
+
+// This type was previously in useAppModals.ts, moving it here.
+export interface FilenameInputModalTriggerProps {
+  defaultFilename: string;
+  promptMessage: string;
+  onSubmit: (filename: string) => void;
+}
 
 
 export enum ChatMessageRole {
   USER = 'user',
   MODEL = 'model',
-  SYSTEM = 'system', // For system instructions, not directly a message role in Gemini chat history
-  ERROR = 'error' // For displaying error messages in chat
+  SYSTEM = 'system',
+  ERROR = 'error'
 }
 
 export interface GroundingChunk {
@@ -21,38 +50,36 @@ export interface GroundingChunk {
 }
 
 export type AttachmentUploadState =
-  | 'idle'                    // Initial state
-  | 'reading_client'          // Client-side FileReader is active
-  | 'uploading_to_cloud'      // SDK's ai.files.uploadFile is in progress
-  | 'processing_on_server'    // File API status is PROCESSING, polling getFile
-  | 'completed_cloud_upload'  // File API status is ACTIVE, fileUri is available
-  | 'completed'               // Client-side read complete (e.g. base64 ready, no cloud upload attempted/failed)
-  | 'error_client_read'       // FileReader failed
-  | 'error_cloud_upload';     // Cloud upload or processing failed
+  | 'idle'
+  | 'reading_client'
+  | 'uploading_to_cloud'
+  | 'processing_on_server'
+  | 'completed_cloud_upload'
+  | 'completed'
+  | 'error_client_read'
+  | 'error_cloud_upload';
 
 export interface Attachment {
   id: string; 
-  type: 'image' | 'video'; // Simplified, can be expanded for generic files
-  mimeType: string; // Original MIME type of the file
+  type: 'image' | 'video';
+  mimeType: string;
   name: string;
-  base64Data?: string; // Pure base64 encoded content, for re-upload or fallback
-  dataUrl?: string;    // Full Data URL for client-side preview (images/videos)
-  size: number;       // File size in bytes
+  base64Data?: string;
+  dataUrl?: string;
+  size: number;
   
-  fileUri?: string;           // URI from Gemini File API
-  fileApiName?: string;       // Resource name from Gemini File API (e.g., files/your-id)
+  fileUri?: string;
+  fileApiName?: string;
   uploadState?: AttachmentUploadState; 
-  statusMessage?: string;     
-  progress?: number;          // Client read: 0-100. Cloud upload: 0-100 (if available) or undefined for spinner.
+  statusMessage?: string;
+  progress?: number;
 
-  error?: string;     
+  error?: string;
   isLoading?: boolean;
 
-  // For re-upload feature
   isReUploading?: boolean;
   reUploadError?: string;
 }
-
 
 export interface ChatMessage {
   id: string;
@@ -65,13 +92,10 @@ export interface ChatMessage {
     groundingChunks?: GroundingChunk[];
   };
   characterName?: string; 
-  cachedAudioBuffers?: (ArrayBuffer | null)[] | null; // Updated for multi-part TTS
-  // Field for exported audio, not used at runtime directly in ChatMessage objects
-  // but helps type-checking during import/export transformation
+  cachedAudioBuffers?: (ArrayBuffer | null)[] | null;
   exportedMessageAudioBase64?: (string | null)[]; 
 }
 
-// As defined by the Google AI SDK for Harm Categories
 export enum HarmCategory {
   HARM_CATEGORY_UNSPECIFIED = "HARM_CATEGORY_UNSPECIFIED",
   HARM_CATEGORY_HARASSMENT = "HARM_CATEGORY_HARASSMENT",
@@ -80,7 +104,6 @@ export enum HarmCategory {
   HARM_CATEGORY_DANGEROUS_CONTENT = "HARM_CATEGORY_DANGEROUS_CONTENT",
 }
 
-// As defined by the Google AI SDK for Harm Block Thresholds
 export enum HarmBlockThreshold {
   HARM_BLOCK_THRESHOLD_UNSPECIFIED = "HARM_BLOCK_THRESHOLD_UNSPECIFIED",
   BLOCK_LOW_AND_ABOVE = "BLOCK_LOW_AND_ABOVE", 
@@ -94,15 +117,15 @@ export interface SafetySetting {
   threshold: HarmBlockThreshold;
 }
 
-export type TTSModelId = 'gemini-2.5-flash-preview-tts' | 'gemini-2.5-pro-preview-tts'; // Example model IDs
-export type TTSVoiceId = string; // Represents one of the 30 voice names like 'Kore', 'Puck'
+export type TTSModelId = 'gemini-2.5-flash-preview-tts' | 'gemini-2.5-pro-preview-tts';
+export type TTSVoiceId = string;
 
 export interface TTSSettings {
   model: TTSModelId;
   voice: TTSVoiceId;
-  autoPlayNewMessages?: boolean; // Renamed from autoFetchAudioEnabled
+  autoPlayNewMessages?: boolean;
   systemInstruction?: string; 
-  maxWordsPerSegment?: number; // New: Max words per TTS segment
+  maxWordsPerSegment?: number;
 }
 
 export interface ApiKey {
@@ -127,7 +150,7 @@ export interface GeminiSettings {
   ttsSettings: TTSSettings; 
   showAutoSendControls?: boolean; 
   showReadModeButton?: boolean; 
-  thinkingBudget?: number; // Added thinkingBudget
+  thinkingBudget?: number;
   _characterIdForCacheKey?: string; 
   _characterIdForAPICall?: string;  
   _characterNameForLog?: string; 
@@ -145,14 +168,11 @@ export enum AppMode {
   CHARACTER_CHAT = 'character_chat',
 }
 
-// For Gemini API history, used in constructing requests
 export interface GeminiHistoryEntry {
   role: "user" | "model";
   parts: GeminiPart[]; 
 }
 
-
-// Specific type for the 'config' object used in API request logging and error formatting
 export interface LoggedGeminiGenerationConfig {
   systemInstruction?: string | Content; 
   temperature?: number;
@@ -165,18 +185,16 @@ export interface LoggedGeminiGenerationConfig {
   seed?: number;
 }
 
-// Type for the payload sent to the Gemini SDK, adapted for logging and error context
 export interface ApiRequestPayload {
   model?: string; 
-  history?: GeminiHistoryEntry[]; // Used by chat.create
-  contents?: Content[] | GeminiPart[] | string; // Used by models.generateContent or chat.sendMessage
-  config?: Partial<LoggedGeminiGenerationConfig>; // Config for either chat.create or models.generateContent
-  file?: { name: string, type: string, size: number, data?: string }; // For files.uploadFile (input)
-  fileName?: string; // For files.getFile, files.delete (input)
-  fileApiResponse?: any; // For logging responses from file operations
-  apiKeyUsed?: string; // For logging which key was used
+  history?: GeminiHistoryEntry[];
+  contents?: Content[] | GeminiPart[] | string;
+  config?: Partial<LoggedGeminiGenerationConfig>;
+  file?: { name: string, type: string, size: number, data?: string };
+  fileName?: string;
+  fileApiResponse?: any;
+  apiKeyUsed?: string;
 }
-
 
 export interface ApiRequestLog {
   id: string;
@@ -218,7 +236,6 @@ export interface FileUploadResult {
     error?: string; 
 }
 
-
 export interface FullResponseData {
     text: string;
     groundingMetadata?: { groundingChunks?: GroundingChunk[] };
@@ -228,7 +245,6 @@ export interface UserMessageInput {
     text: string;
     attachments?: Attachment[]; 
 }
-
 
 export type LogApiRequestCallback = (logDetails: Omit<ApiRequestLog, 'id' | 'timestamp'>) => void;
 
@@ -289,7 +305,6 @@ export interface MessageItemProps {
   onToggleExpansion: (messageId: string, type: 'content' | 'thoughts') => void;
 }
 
-
 export interface UseAudioPlayerOptions {
   apiKey: string;
   logApiRequest?: LogApiRequestCallback;
@@ -320,14 +335,12 @@ export interface UseAudioPlayerReturn {
   decreaseSpeed: () => void; 
 }
 
-// Updated options for useAutoFetchAudio (now simpler, for auto-play)
-export interface UseAutoPlayOptions { // Renamed from UseAutoFetchAudioOptions
+export interface UseAutoPlayOptions {
     currentChatSession: ChatSession | null;
     playFunction: (originalFullText: string, baseMessageId: string, partIndexToPlay?: number) => Promise<void>;
 }
 
 export interface ExportConfiguration {
-  // Core Chat Data
   includeChatSessionsAndMessages: boolean;
   includeMessageContent: boolean;
   includeMessageTimestamps: boolean;
@@ -336,17 +349,9 @@ export interface ExportConfiguration {
   includeFullAttachmentFileData: boolean;    
   includeCachedMessageAudio: boolean;       
   includeGroundingMetadata: boolean;
-
-  // Chat-Specific Settings
   includeChatSpecificSettings: boolean; 
-
-  // AI Character Definitions
   includeAiCharacterDefinitions: boolean; 
-
-  // API Request Logs
   includeApiLogs: boolean;
-
-  // Global Application State
   includeLastActiveChatId: boolean;
   includeMessageGenerationTimes: boolean;
   includeUiConfiguration: boolean; 
@@ -354,7 +359,6 @@ export interface ExportConfiguration {
   includeApiKeys: boolean;
 }
 
-// Props for ExportConfigurationModal
 export interface ExportConfigurationModalProps {
   isOpen: boolean;
   currentConfig: ExportConfiguration;
@@ -364,7 +368,6 @@ export interface ExportConfigurationModalProps {
   onExportSelected: (config: ExportConfiguration, selectedChatIds: string[]) => void; 
 }
 
-// Type for items in the ChatAttachmentsModal
 export interface AttachmentWithContext {
   attachment: Attachment;
   messageId: string;
