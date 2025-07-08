@@ -1,8 +1,9 @@
+// src/components/AppContent.tsx
 import React, { useRef, useCallback, useState, memo, lazy, Suspense } from 'react';
 import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
-import { useUIContext } from '../contexts/UIContext.tsx';
+import { useUIStore } from '../stores/uiStore.ts';
 import { useAudioContext } from '../contexts/AudioContext.tsx';
-import { useApiKeyContext } from '../contexts/ApiKeyContext.tsx'; // Import ApiKey context
+import { useApiKeyStore } from '../stores/apiKeyStore.ts';
 
 // Lazy load components
 const Sidebar = lazy(() => import('./Sidebar.tsx'));
@@ -27,9 +28,10 @@ const GitHubImportModal = lazy(() => import('./GitHubImportModal.tsx'));
 const AppContent: React.FC = memo(() => {
   const { isLoadingData, currentChatSession } = useChatState();
   const { handleDeleteMessageAndSubsequent, performActualAudioCacheReset, handleSetGithubRepo } = useChatActions();
-  const ui = useUIContext();
+  const ui = useUIStore();
+  const uiActions = useUIStore(state => state.actions);
   const audio = useAudioContext();
-  const { deleteApiKey } = useApiKeyContext(); // Get deleteApiKey function
+  const { deleteApiKey } = useApiKeyStore(state => state.actions);
   const chatViewRef = useRef<any>(null);
 
   const [isReadModeOpen, setIsReadModeOpen] = useState(false);
@@ -60,24 +62,24 @@ const AppContent: React.FC = memo(() => {
   }, [audio.audioPlayerState, currentChatSession]);
 
   const handleGoToAttachmentInChat = useCallback((messageId: string) => {
-    ui.closeChatAttachmentsModal();
+    uiActions.closeChatAttachmentsModal();
     if (chatViewRef.current) {
       chatViewRef.current.scrollToMessage(messageId);
     }
-  }, [ui]);
+  }, [uiActions]);
 
   const handleConfirmDeletion = useCallback(() => {
     if (ui.deleteTarget) {
       if (ui.deleteTarget.messageId === 'api-key') {
         deleteApiKey(ui.deleteTarget.sessionId);
-        ui.showToast("API Key deleted.", "success");
+        uiActions.showToast("API Key deleted.", "success");
       } else {
         handleDeleteMessageAndSubsequent(ui.deleteTarget.sessionId, ui.deleteTarget.messageId);
-        ui.showToast("Message and history deleted.", "success");
+        uiActions.showToast("Message and history deleted.", "success");
       }
     }
-    ui.cancelDeleteConfirmation();
-  }, [ui, deleteApiKey, handleDeleteMessageAndSubsequent]);
+    uiActions.cancelDeleteConfirmation();
+  }, [ui.deleteTarget, uiActions, deleteApiKey, handleDeleteMessageAndSubsequent]);
 
   const isAudioBarVisible = !!(audio.audioPlayerState.currentMessageId || audio.audioPlayerState.isLoading || audio.audioPlayerState.isPlaying || audio.audioPlayerState.currentPlayingText) && !isReadModeOpen;
   
@@ -92,7 +94,7 @@ const AppContent: React.FC = memo(() => {
           <Sidebar />
         </div>
 
-        {ui.isSidebarOpen && <div className="fixed inset-0 z-20 bg-black bg-opacity-50" onClick={ui.closeSidebar} aria-hidden="true" />}
+        {ui.isSidebarOpen && <div className="fixed inset-0 z-20 bg-black bg-opacity-50" onClick={uiActions.closeSidebar} aria-hidden="true" />}
         
         <main className={`relative z-10 flex-1 flex flex-col overflow-y-auto transition-all duration-300 ease-in-out ${ui.isSidebarOpen ? 'md:ml-72' : 'ml-0'} ${isAudioBarVisible ? 'pt-[76px]' : ''}`}>
           <ChatView ref={chatViewRef} onEnterReadMode={handleEnterReadMode} />
@@ -123,10 +125,10 @@ const AppContent: React.FC = memo(() => {
           />
           
           <SettingsPanel />
-          <ApiKeyModal isOpen={ui.isApiKeyModalOpen} onClose={ui.closeApiKeyModal} />
+          <ApiKeyModal />
           <GitHubImportModal
               isOpen={ui.isGitHubImportModalOpen}
-              onClose={ui.closeGitHubImportModal}
+              onClose={uiActions.closeGitHubImportModal}
               onImport={handleSetGithubRepo}
           />
           <ExportConfigurationModal />
@@ -140,7 +142,7 @@ const AppContent: React.FC = memo(() => {
               isOpen={ui.isChatAttachmentsModalOpen}
               attachments={ui.attachmentsForModal}
               chatTitle={currentChatSession?.title || "Current Chat"}
-              onClose={ui.closeChatAttachmentsModal}
+              onClose={uiActions.closeChatAttachmentsModal}
               onGoToMessage={handleGoToAttachmentInChat}
           />
 
@@ -149,8 +151,8 @@ const AppContent: React.FC = memo(() => {
               isOpen={ui.isFilenameInputModalOpen}
               defaultFilename={ui.filenameInputModalProps.defaultFilename}
               promptMessage={ui.filenameInputModalProps.promptMessage}
-              onSubmit={ui.submitFilenameInputModal}
-              onClose={ui.closeFilenameInputModal}
+              onSubmit={uiActions.submitFilenameInputModal}
+              onClose={uiActions.closeFilenameInputModal}
             />
           )}
 
@@ -160,7 +162,7 @@ const AppContent: React.FC = memo(() => {
             message={ui.deleteTarget?.messageId === 'api-key' ? 'Are you sure you want to permanently delete this API key?' : <>Are you sure you want to delete this message and all <strong className="text-red-400">subsequent messages</strong> in this chat? <br/>This action cannot be undone.</>}
             confirmText="Yes, Delete" cancelText="No, Cancel"
             onConfirm={handleConfirmDeletion}
-            onCancel={ui.cancelDeleteConfirmation}
+            onCancel={uiActions.cancelDeleteConfirmation}
             isDestructive={true}
           />
           <ConfirmationModal
@@ -172,12 +174,12 @@ const AppContent: React.FC = memo(() => {
               if(ui.resetAudioTarget) {
                 performActualAudioCacheReset(ui.resetAudioTarget.sessionId, ui.resetAudioTarget.messageId);
               }
-              ui.cancelResetAudioCacheConfirmation(); 
+              uiActions.cancelResetAudioCacheConfirmation(); 
             }} 
-            onCancel={ui.cancelResetAudioCacheConfirmation}
+            onCancel={uiActions.cancelResetAudioCacheConfirmation}
             isDestructive={true}
           />
-          {ui.toastInfo && <ToastNotification message={ui.toastInfo.message} type={ui.toastInfo.type} onClose={() => ui.setToastInfo(null)} duration={ui.toastInfo.duration} />}
+          {ui.toastInfo && <ToastNotification message={ui.toastInfo.message} type={ui.toastInfo.type} onClose={() => uiActions.setToastInfo(null)} duration={ui.toastInfo.duration} />}
         </div>
       </Suspense>
     </div>

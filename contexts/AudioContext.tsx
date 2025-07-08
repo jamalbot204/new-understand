@@ -1,19 +1,15 @@
-
-
-
-
+// contexts/AudioContext.tsx
 import React, { createContext, useContext, useRef, ReactNode, useEffect, useCallback, useMemo } from 'react';
-import { AudioPlayerState, ChatMessage } from '../types.ts'; // Added ChatMessage
+import { AudioPlayerState, ChatMessage } from '../types.ts';
 import { useAudioPlayer } from '../hooks/useAudioPlayer.ts';
 import { useAudioControls } from '../hooks/useAudioControls.ts';
-import { useChatState, useChatActions } from './ChatContext.tsx'; // Updated import
-import { useUIContext } from './UIContext.tsx';
-import { useAutoPlay } from '../hooks/useAutoPlay.ts'; // Import the new hook
+import { useChatState, useChatActions } from './ChatContext.tsx';
+import { useUIStore } from '../stores/uiStore.ts';
+import { useAutoPlay } from '../hooks/useAutoPlay.ts';
 import { splitTextForTts } from '../services/utils.ts';
 import { MAX_WORDS_PER_TTS_SEGMENT } from '../constants.ts';
-import { useApiKeyContext } from './ApiKeyContext.tsx';
+import { useApiKeyStore } from '../stores/apiKeyStore.ts';
 
-// Define the shape of the Audio context data
 interface AudioContextType {
   audioPlayerState: AudioPlayerState;
   handlePlayTextForMessage: (text: string, messageId: string, partIndex?: number) => Promise<void>;
@@ -40,8 +36,8 @@ const AudioContext = createContext<AudioContextType | null>(null);
 export const AudioProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const { currentChatSession, logApiRequest } = useChatState();
   const { updateChatSession } = useChatActions();
-  const ui = useUIContext();
-  const { activeApiKey } = useApiKeyContext();
+  const uiActions = useUIStore(state => state.actions);
+  const { activeApiKey } = useApiKeyStore();
   const apiKey = activeApiKey?.value || '';
 
   const audioControlsHookRef = useRef<any>(null);
@@ -71,9 +67,9 @@ export const AudioProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     currentChatSession: currentChatSession,
     updateChatSession: updateChatSession,
     logApiRequest: logApiRequest,
-    showToast: ui.showToast,
+    showToast: uiActions.showToast,
     audioPlayerHook: audioPlayer,
-    requestResetAudioCacheConfirmationModal: ui.requestResetAudioCacheConfirmation,
+    requestResetAudioCacheConfirmationModal: uiActions.requestResetAudioCacheConfirmation,
     isAutoFetchingSegment: () => false,
     onCancelAutoFetchSegment: () => {},
   });
@@ -109,10 +105,9 @@ export const AudioProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         return { ...session, messages: newMessages };
     });
 
-    ui.showToast(`Audio cache reset for ${messageIds.length} message(s).`, "success");
-    ui.toggleSelectionMode(); // This also clears selection
-  }, [currentChatSession, updateChatSession, audioPlayer, ui.showToast, ui.toggleSelectionMode]);
-
+    uiActions.showToast(`Audio cache reset for ${messageIds.length} message(s).`, "success");
+    uiActions.toggleSelectionMode(); // This also clears selection
+  }, [currentChatSession, updateChatSession, audioPlayer, uiActions.showToast, uiActions.toggleSelectionMode]);
 
   const value = useMemo(() => ({
     audioPlayerState: audioPlayer.audioPlayerState,

@@ -1,3 +1,4 @@
+// src/components/MessageItem.tsx
 import React, { useState, useEffect, useRef, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -9,7 +10,7 @@ import { ChatMessage, ChatMessageRole, GroundingChunk, Attachment } from '../typ
 import ResetAudioCacheButton from './ResetAudioCacheButton.tsx';
 import RefreshAttachmentButton from './RefreshAttachmentButton.tsx';
 import { useChatState, useChatActions, useChatInteractionStatus } from '../contexts/ChatContext.tsx';
-import { useUIContext } from '../contexts/UIContext.tsx';
+import { useUIStore } from '../stores/uiStore.ts';
 import { useAudioContext } from '../contexts/AudioContext.tsx';
 import { MAX_WORDS_PER_TTS_SEGMENT, MESSAGE_CONTENT_SNIPPET_THRESHOLD } from '../constants.ts';
 import {
@@ -45,12 +46,7 @@ interface MessageItemProps {
   onToggleExpansion: (messageId: string, type: 'content' | 'thoughts') => void;
 }
 
-// ==================================================================
-// NEW & CORRECTED: Markdown Renderers
-// This object defines how to render specific markdown elements.
-// ==================================================================
 const markdownRenderers = {
-    // This function handles both inline `code` and fenced ```code blocks```
     code({ node, inline, className, children, ...props }: any) {
         const [isCodeCopied, setIsCodeCopied] = useState(false);
         const codeString = String(children).replace(/\n$/, '');
@@ -68,8 +64,6 @@ const markdownRenderers = {
         const match = /language-(\w+)/.exec(className || '');
         const lang = match ? match[1] : 'text';
 
-        // If it's NOT inline, it's a fenced block. Render with full syntax highlighting.
-        // If it IS inline, the `else` block will handle it.
         return !inline && match ? (
             <div className="relative group/codeblock my-2 rounded-md overflow-hidden shadow border border-white/10 bg-[#0A0910]">
                 <div className="flex justify-between items-center px-4 py-1.5 bg-black/20">
@@ -93,13 +87,11 @@ const markdownRenderers = {
                 </SyntaxHighlighter>
             </div>
         ) : (
-            // This renders for inline `code` and for ``` blocks without a language
             <code className="bg-black/30 text-indigo-300 rounded font-mono border border-white/10 px-1 py-0.5" {...props}>
                 {children}
             </code>
         );
     },
-    // This ensures paragraphs are rendered as divs, which helps with styling.
     p(props: any) {
         return <div {...props} />;
     }
@@ -165,7 +157,8 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
     handleActualCopyMessage, handleDeleteSingleMessageOnly, handleRegenerateAIMessage,
     handleRegenerateResponseForUserMessage, handleReUploadAttachment, handleInsertEmptyMessageAfter
   } = useChatActions();
-  const ui = useUIContext();
+  const uiActions = useUIStore(state => state.actions);
+  const { isSelectionModeActive, selectedMessageIds } = useUIStore();
   const audio = useAudioContext();
 
   const isUser = message.role === ChatMessageRole.USER;
@@ -181,7 +174,6 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
 
   const markdownContentRef = useRef<HTMLDivElement>(null);
 
-  const { isSelectionModeActive, selectedMessageIds, toggleMessageSelection } = ui;
   const isSelected = isSelectionModeActive && selectedMessageIds.has(message.id);
 
   let displayContent = message.content;
@@ -335,7 +327,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
 
   const handleEditClick = () => {
     if (!currentChatSession) return;
-    ui.openEditPanel({
+    uiActions.openEditPanel({
         sessionId: currentChatSession.id,
         messageId: message.id,
         originalContent: message.content,
@@ -385,7 +377,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
 
   const handleResetCacheClick = () => {
     if (!currentChatSession) return;
-    ui.requestResetAudioCacheConfirmation(currentChatSession.id, message.id);
+    uiActions.requestResetAudioCacheConfirmation(currentChatSession.id, message.id);
     setIsOptionsMenuOpen(false);
   };
 
@@ -401,7 +393,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
     const firstWords = words.slice(0, 7).join(' ');
     const defaultNameSuggestion = sanitizeFilename(firstWords, 50) || 'audio_download';
 
-    ui.openFilenameInputModal({
+    uiActions.openFilenameInputModal({
       defaultFilename: defaultNameSuggestion,
       promptMessage: "Enter filename for audio (extension .mp3 will be added):",
       onSubmit: (userProvidedName) => {
@@ -553,10 +545,10 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
     <div
       id={`message-item-${message.id}`}
       className={`group flex items-start mb-1 w-full relative transition-colors duration-200 ${isSelected ? 'bg-blue-900/40 rounded-md' : ''} ${isSelectionModeActive ? 'cursor-pointer' : ''} ${layoutClasses}`}
-      onClick={() => isSelectionModeActive && toggleMessageSelection(message.id)}
+      onClick={() => isSelectionModeActive && uiActions.toggleMessageSelection(message.id)}
       role="listitem"
     >
-      {!isUser && isSelectionModeActive && <Checkbox isSelected={isSelected} onToggle={() => toggleMessageSelection(message.id)} role={message.role} />}
+      {!isUser && isSelectionModeActive && <Checkbox isSelected={isSelected} onToggle={() => uiActions.toggleMessageSelection(message.id)} role={message.role} />}
       <div className={`flex flex-col ${isUser ? 'items-end' : 'items-start'} max-w-5xl`}>
         {isModel && message.isStreaming && !isError && !extractedThoughts && (
           <div
@@ -843,7 +835,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                                 disabled={isAnyAudioOperationActiveForMessage}
                             />
                             <DropdownMenuItem
-                                onClick={() => { ui.requestDeleteConfirmation(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
+                                onClick={() => { uiActions.requestDeleteConfirmation(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
                                 icon={TrashIcon}
                                 label="Delete Message & History"
                                 className="text-red-400"
@@ -857,7 +849,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
             </div>
         )}
       </div>
-       {isUser && isSelectionModeActive && <Checkbox isSelected={isSelected} onToggle={() => toggleMessageSelection(message.id)} role={message.role} />}
+       {isUser && isSelectionModeActive && <Checkbox isSelected={isSelected} onToggle={() => uiActions.toggleMessageSelection(message.id)} role={message.role} />}
     </div>
   );
 };

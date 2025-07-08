@@ -1,18 +1,17 @@
-
-
+// src/components/MultiSelectActionBar.tsx
 import React, { memo, useCallback } from 'react';
-import { useUIContext } from '../contexts/UIContext.tsx';
+import { useUIStore } from '../stores/uiStore.ts';
 import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
 import { useAudioContext } from '../contexts/AudioContext.tsx';
 import { TrashIcon, AudioResetIcon, XCircleIcon } from './Icons.tsx';
 
 const MultiSelectActionBar: React.FC = memo(() => {
-  const ui = useUIContext();
+  const { selectedMessageIds } = useUIStore();
+  const { clearSelection, toggleSelectionMode, selectAllVisible } = useUIStore(state => state.actions);
   const { visibleMessagesForCurrentChat } = useChatState();
   const { handleDeleteMultipleMessages } = useChatActions();
   const audio = useAudioContext();
 
-  const { selectedMessageIds, clearSelection, toggleSelectionMode, selectAllVisible } = ui;
   const { handleResetAudioCacheForMultipleMessages } = audio;
 
   const selectedCount = selectedMessageIds.size;
@@ -36,8 +35,10 @@ const MultiSelectActionBar: React.FC = memo(() => {
     toggleSelectionMode();
   }, [toggleSelectionMode]);
 
+  const isSidebarOpen = useUIStore(state => state.isSidebarOpen);
+
   return (
-    <div className={`fixed bottom-0 left-0 right-0 bg-gray-900/90 backdrop-blur-sm border-t border-gray-700 p-2 sm:p-3 z-30 transition-all duration-300 ease-in-out ${ui.isSidebarOpen ? 'md:left-72' : 'left-0'}`}>
+    <div className={`fixed bottom-0 left-0 right-0 bg-gray-900/90 backdrop-blur-sm border-t border-gray-700 p-2 sm:p-3 z-30 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'md:left-72' : 'left-0'}`}>
         <div className="flex items-center justify-between">
             <div className="flex items-center space-x-2 sm:space-x-4">
                 <span className="text-sm font-medium text-gray-300 w-24 text-center">{selectedCount} selected</span>

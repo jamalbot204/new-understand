@@ -1,8 +1,7 @@
-
-
+// src/components/EditMessagePanel.tsx
 import React, { useState, useEffect, useCallback, memo } from 'react';
 import { useChatActions, useChatInteractionStatus } from '../contexts/ChatContext.tsx';
-import { useUIContext } from '../contexts/UIContext.tsx';
+import { useUIStore } from '../stores/uiStore.ts';
 import { ChatMessageRole, Attachment } from '../types.ts';
 import { CloseIcon, SparklesIcon, UserIcon, SaveDiskIcon, XCircleIcon, SubmitPlayIcon, ContinueArrowIcon } from './Icons.tsx';
 import useAutoResizeTextarea from '../hooks/useAutoResizeTextarea.ts';
@@ -25,7 +24,8 @@ export interface EditMessagePanelDetails {
 const EditMessagePanel: React.FC = memo(() => {
   const { handleEditPanelSubmit, handleCancelGeneration } = useChatActions();
   const { isLoading } = useChatInteractionStatus();
-  const { isEditPanelOpen, editingMessageDetail, closeEditPanel } = useUIContext();
+  const { isEditPanelOpen, editingMessageDetail } = useUIStore();
+  const { closeEditPanel } = useUIStore(state => state.actions);
 
   const [editedContent, setEditedContent] = useState('');
   const textareaRef = useAutoResizeTextarea<HTMLTextAreaElement>(editedContent, 300);
