@@ -1,6 +1,8 @@
+
+
 import React, { useRef, useEffect, memo, useCallback } from 'react';
 import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
-import { useUIStore } from '../stores/uiStore';
+import { useUIContext } from '../contexts/UIContext.tsx';
 import { APP_TITLE } from '../constants.ts';
 import { PlusIcon, TrashIcon, CogIcon, ExportIcon, ImportIcon, UsersIcon, IconDirectionLtr, IconDirectionRtl, PencilIcon, CheckIcon, XCircleIcon, DocumentDuplicateIcon } from './Icons.tsx';
 
@@ -12,18 +14,7 @@ const Sidebar: React.FC = memo(() => {
       handleCancelEditChatTitle, handleEditTitleInputChange, handleDuplicateChat,
       handleDeleteChat,
   } = useChatActions();
-  
-  const {
-    toggleLayoutDirection,
-    layoutDirection,
-    openExportConfigurationModal,
-    openSettingsPanel,
-  } = useUIStore(state => ({
-    toggleLayoutDirection: state.toggleLayoutDirection,
-    layoutDirection: state.layoutDirection,
-    openExportConfigurationModal: state.openExportConfigurationModal,
-    openSettingsPanel: state.openSettingsPanel,
-  }));
+  const ui = useUIContext();
   
   const editInputRef = useRef<HTMLInputElement>(null);
 
@@ -47,12 +38,12 @@ const Sidebar: React.FC = memo(() => {
       <div className="p-4 border-b border-[var(--aurora-border)] flex justify-between items-center">
         <h1 className="text-xl font-semibold text-gray-100">{APP_TITLE}</h1>
         <button
-          onClick={toggleLayoutDirection}
-          title={layoutDirection === 'rtl' ? "Switch to Left-to-Right" : "Switch to Right-to-Left"}
+          onClick={ui.handleToggleLayoutDirection}
+          title={ui.layoutDirection === 'rtl' ? "Switch to Left-to-Right" : "Switch to Right-to-Left"}
           className="p-1.5 text-[var(--aurora-text-secondary)] hover:text-[var(--aurora-text-primary)] rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)] focus:outline-none focus:ring-2 ring-[var(--aurora-accent-primary)]"
-          aria-label={layoutDirection === 'rtl' ? "Switch to Left-to-Right layout" : "Switch to Right-to-Left layout"}
+          aria-label={ui.layoutDirection === 'rtl' ? "Switch to Left-to-Right layout" : "Switch to Right-to-Left layout"}
         >
-          {layoutDirection === 'rtl' ? <IconDirectionLtr className="w-5 h-5" /> : <IconDirectionRtl className="w-5 h-5" />}
+          {ui.layoutDirection === 'rtl' ? <IconDirectionLtr className="w-5 h-5" /> : <IconDirectionRtl className="w-5 h-5" />}
         </button>
       </div>
 
@@ -80,7 +71,7 @@ const Sidebar: React.FC = memo(() => {
         </div>
         <div className="flex space-x-2 rtl:space-x-reverse">
             <button
-                onClick={openExportConfigurationModal}
+                onClick={ui.openExportConfigurationModal}
                 title="Export Selected Chats"
                 className="w-full flex items-center justify-center px-3 py-2 text-xs font-medium text-[var(--aurora-text-secondary)] bg-white/5 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]"
             >
@@ -184,7 +175,7 @@ const Sidebar: React.FC = memo(() => {
 
       <div className="p-4 border-t border-[var(--aurora-border)]">
         <button
-          onClick={openSettingsPanel}
+          onClick={ui.openSettingsPanel}
           className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-[var(--aurora-text-secondary)] bg-white/5 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)] hover:text-[var(--aurora-text-primary)] focus:outline-none focus:ring-2 ring-[var(--aurora-accent-primary)]"
         >
           <CogIcon className="w-5 h-5 mr-2 rtl:ml-2 rtl:mr-0" />

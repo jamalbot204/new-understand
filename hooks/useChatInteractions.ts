@@ -1,29 +1,35 @@
+
 import { useCallback } from 'react';
-import { ChatSession, ChatMessageRole, Attachment, LogApiRequestCallback, EditMessagePanelAction, EditMessagePanelDetails } from '../types.ts'; // Corrected import path
-import { INITIAL_MESSAGES_COUNT, DEFAULT_SETTINGS } from '../constants.ts';
-import { uploadFileViaApi, deleteFileViaApi } from '../services/geminiService.ts';
+import { ChatSession, ChatMessageRole, Attachment, LogApiRequestCallback } from '../types.ts'; // Adjusted paths
+import { EditMessagePanelAction, EditMessagePanelDetails } from '../components/EditMessagePanel.tsx'; // Adjusted paths
+import { INITIAL_MESSAGES_COUNT, DEFAULT_SETTINGS } from '../constants.ts'; // Adjusted paths
+import { uploadFileViaApi, deleteFileViaApi } from '../services/geminiService.ts'; // Added deleteFileViaApi
+ // Added for logApiRequest
 
 interface UseChatInteractionsProps {
   apiKey: string;
   currentChatSession: ChatSession | null;
   updateChatSession: (sessionId: string, updater: (session: ChatSession) => ChatSession | null) => Promise<void>;
   showToast: (message: string, type?: 'success' | 'error') => void;
-  openEditPanel: (details: EditMessagePanelDetails) => void;
-  closeEditPanel: () => void;
-  geminiHandleEditPanelSubmit: (action: EditMessagePanelAction, newContent: string, editingMessageDetail: EditMessagePanelDetails) => Promise<void>;
-  geminiHandleCancelGeneration: () => Promise<void>;
-  isLoadingFromGemini: boolean;
-  setMessageGenerationTimes: (updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => Promise<void>;
-  setMessagesToDisplayConfig: (updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => Promise<void>;
-  stopAndCancelAudio: () => void;
-  requestDeleteConfirmationModal: (sessionId: string, messageId: string) => void;
-  requestResetAudioCacheConfirmationModal: (sessionId: string, messageId: string) => void;
-  isSettingsPanelOpen: boolean;
-  closeSettingsPanel: () => void;
-  closeSidebar: () => void;
-  logApiRequest: LogApiRequestCallback;
+  openEditPanel: (details: EditMessagePanelDetails) => void; // From useAppModals
+  closeEditPanel: () => void; // From useAppModals
+  geminiHandleEditPanelSubmit: (action: EditMessagePanelAction, newContent: string, editingMessageDetail: EditMessagePanelDetails) => Promise<void>; // From useGemini
+  geminiHandleCancelGeneration: () => Promise<void>; // From useGemini
+  isLoadingFromGemini: boolean; // From useGemini
+  setMessageGenerationTimes: (updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => Promise<void>; // From useAppPersistence
+  setMessagesToDisplayConfig: (updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => Promise<void>; // From useAppPersistence
+  stopAndCancelAudio: () => void; // From useAudioControls
+  activeAutoFetches: Map<string, AbortController>; // Simplified: This prop is no longer for the old auto-fetch state
+  setActiveAutoFetches: React.Dispatch<React.SetStateAction<Map<string, AbortController>>>; // Simplified
+  requestDeleteConfirmationModal: (sessionId: string, messageId: string) => void; // From useAppModals
+  requestResetAudioCacheConfirmationModal: (sessionId: string, messageId: string) => void; // From useAppModals
+  isSettingsPanelOpen: boolean; 
+  closeSettingsPanel: () => void; 
+  closeSidebar: () => void; 
+  logApiRequest: LogApiRequestCallback; // Add logApiRequest
 }
 
+// Helper function to convert base64 string to a File object
 function base64StringToFile(base64String: string, filename: string, mimeType: string): File {
   try {
     const byteCharacters = atob(base64String);
@@ -36,9 +42,12 @@ function base64StringToFile(base64String: string, filename: string, mimeType: st
     return new File([blob], filename, { type: mimeType });
   } catch (error) {
     console.error("Error in base64StringToFile:", error);
+    // Return a dummy/empty file or throw, depending on desired error handling
+    // For now, let's throw to make the error apparent.
     throw new Error("Failed to convert base64 string to File object.");
   }
 }
+
 
 export function useChatInteractions({
   apiKey,
@@ -53,7 +62,7 @@ export function useChatInteractions({
   setMessageGenerationTimes,
   setMessagesToDisplayConfig,
   stopAndCancelAudio,
-  requestDeleteConfirmationModal,
+  requestDeleteConfirmationModal, 
   requestResetAudioCacheConfirmationModal,
   isSettingsPanelOpen,
   closeSettingsPanel,
@@ -77,6 +86,8 @@ export function useChatInteractions({
     if (currentChatSession?.messages.find(m => m.id === messageId)?.cachedAudioBuffers) {
         stopAndCancelAudio();
     }
+    // The old activeAutoFetches map for proactive background fetch is no longer managed here.
+    // Cancellation of individual segment fetches is handled by useAudioPlayer/useAudioControls.
 
     await updateChatSession(sessionId, (session) => {
       if (!session) return null;
@@ -97,12 +108,14 @@ export function useChatInteractions({
       })).catch(console.error);
       return { ...session, messages: newMessages };
     });
+    // showToast is handled by App.tsx after confirmation
   }, [currentChatSession, updateChatSession, setMessageGenerationTimes, setMessagesToDisplayConfig, stopAndCancelAudio]);
 
   const handleDeleteSingleMessageOnly = useCallback(async (sessionId: string, messageId: string) => {
     if (currentChatSession?.messages.find(m => m.id === messageId)?.cachedAudioBuffers) {
         stopAndCancelAudio();
     }
+    // The old activeAutoFetches map for proactive background fetch is no longer managed here.
 
     await updateChatSession(sessionId, (session) => {
       if (!session) return null;
@@ -129,6 +142,7 @@ export function useChatInteractions({
     if (!chat || chat.id !== sessionId) return;
     openEditPanel({
       sessionId, messageId, originalContent: currentContent, role, attachments,
+      // model and settings are not part of EditMessagePanelDetails
     });
     if (isSettingsPanelOpen) closeSettingsPanel();
     closeSidebar();
@@ -179,15 +193,17 @@ export function useChatInteractions({
         return;
     }
 
+    // For AI-interacting actions (SAVE_AND_SUBMIT, CONTINUE_PREFIX)
     if (action === EditMessagePanelAction.SAVE_AND_SUBMIT || action === EditMessagePanelAction.CONTINUE_PREFIX) {
         if (contentChanged && messageToEdit?.cachedAudioBuffers?.some(b => b !== null)) {
             requestResetAudioCacheConfirmationModal(sessionId, messageId);
         }
+        // Ensure audio cache is cleared for the message being edited/continued before Gemini call
         await updateChatSession(sessionId, session => session ? ({
             ...session, messages: session.messages.map(msg => msg.id === messageId ? { ...msg, cachedAudioBuffers: null } : msg)
         }) : null);
 
-        closeEditPanel();
+        closeEditPanel(); // Close panel immediately
         showToast(
             action === EditMessagePanelAction.SAVE_AND_SUBMIT ? "Submitting to AI..." : "Continuing with AI...",
             "success"
@@ -201,6 +217,7 @@ export function useChatInteractions({
         return;
     }
     
+    // Fallback if an unknown action is passed, though this shouldn't happen with current enum
     console.warn("Unhandled EditMessagePanelAction:", action);
     closeEditPanel();
 
@@ -277,7 +294,7 @@ export function useChatInteractions({
 
     if (!originalAttachment || !originalAttachment.base64Data || !originalAttachment.mimeType) {
       showToast("Cannot re-upload: Missing original file data.", "error");
-      await updateChatSession(sessionId, session => {
+      await updateChatSession(sessionId, session => { /* revert isReUploading state */
          if (!session) return null;
           const messageIndex = session.messages.findIndex(m => m.id === messageId);
           if (messageIndex === -1) return session;
@@ -306,15 +323,17 @@ export function useChatInteractions({
         throw new Error(uploadResult.error || "Failed to get new file URI from API.");
       }
 
+      // Attempt to delete the old file if it existed
       if (originalAttachment.fileApiName) {
         try {
           await deleteFileViaApi(apiKey, originalAttachment.fileApiName, logApiRequest);
         } catch (deleteError: any) {
           console.warn("Failed to delete old file during re-upload:", deleteError);
-          showToast(`Old file deletion failed: ${deleteError.message}`, "error");
+          showToast(`Old file deletion failed: ${deleteError.message}`, "error"); // Non-critical error
         }
       }
 
+      // Update the attachment with new URI and name
       await updateChatSession(sessionId, session => {
         if (!session) return null;
         const messageIndex = session.messages.findIndex(m => m.id === messageId);
@@ -331,7 +350,7 @@ export function useChatInteractions({
           statusMessage: 'Cloud URL refreshed.',
           isReUploading: false,
           reUploadError: undefined,
-          error: undefined,
+          error: undefined, // Clear previous errors
         };
         const updatedMessages = [...session.messages];
         updatedMessages[messageIndex] = { ...updatedMessages[messageIndex], attachments: updatedAttachments };
@@ -363,6 +382,7 @@ export function useChatInteractions({
     }
   }, [apiKey, currentChatSession, updateChatSession, showToast, logApiRequest]);
 
+
   return {
     handleActualCopyMessage,
     handleDeleteMessageAndSubsequent, 
@@ -374,6 +394,6 @@ export function useChatInteractions({
     handleClearApiLogs,
     handleClearChatCacheForCurrentSession,
     requestDeleteConfirmationModal, 
-    handleReUploadAttachment,
+    handleReUploadAttachment, // Expose new handler
   };
 }

@@ -1,21 +1,19 @@
+
+
 import React, { useState, useEffect, memo, useCallback } from 'react';
 import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
-import { useUIStore } from '../stores/uiStore';
+import { useUIContext } from '../contexts/UIContext.tsx';
 import { TTSSettings, TTSModelId, TTSVoiceId } from '../types.ts';
-import { DEFAULT_TTS_SETTINGS, TTS_MODELS, TTS_VOICES } from '../constants.ts';
+import { DEFAULT_TTS_SETTINGS } from '../constants.ts';
 import { CloseIcon, PencilIcon } from './Icons.tsx';
+import { TTS_MODELS, TTS_VOICES } from '../constants.ts';
 import InstructionEditModal from './InstructionEditModal.tsx';
 
+// No props are needed anymore!
 const TtsSettingsModal: React.FC = memo(() => {
   const { currentChatSession } = useChatState();
   const { updateChatSession } = useChatActions();
-  const { 
-    isTtsSettingsModalOpen, 
-    closeTtsSettingsModal 
-  } = useUIStore(state => ({
-    isTtsSettingsModalOpen: state.isTtsSettingsModalOpen,
-    closeTtsSettingsModal: state.closeTtsSettingsModal,
-  }));
+  const { isTtsSettingsModalOpen, closeTtsSettingsModal } = useUIContext();
 
   const [localTtsSettings, setLocalTtsSettings] = useState<TTSSettings>(currentChatSession?.settings.ttsSettings || DEFAULT_TTS_SETTINGS);
   const [isInstructionModalOpen, setIsInstructionModalOpen] = useState(false);

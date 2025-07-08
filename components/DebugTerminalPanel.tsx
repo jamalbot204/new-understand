@@ -1,6 +1,8 @@
+
+
 import React, { useState, memo } from 'react';
 import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
-import { useUIStore } from '../stores/uiStore';
+import { useUIContext } from '../contexts/UIContext.tsx';
 import { ApiRequestLog } from '../types.ts';
 import { CloseIcon, TrashIcon, BugAntIcon, ChevronDownIcon, ChevronRightIcon } from './Icons.tsx';
 import { getModelDisplayName } from '../services/utils.ts';
@@ -9,6 +11,7 @@ interface LogEntryProps {
   log: ApiRequestLog;
 }
 
+// Moved LogEntryComponent to the top level to prevent re-creation on every render
 const LogEntryComponent: React.FC<LogEntryProps> = ({ log }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const modelName = getModelDisplayName(typeof log.payload.model === 'string' ? log.payload.model : undefined);
@@ -56,15 +59,13 @@ const LogEntryComponent: React.FC<LogEntryProps> = ({ log }) => {
   );
 };
 
+// Memoize the top-level LogEntryComponent
 const LogEntry = memo(LogEntryComponent);
 
 const DebugTerminalPanel: React.FC = memo(() => {
   const { currentChatSession } = useChatState();
   const { handleClearApiLogs } = useChatActions();
-  const { isDebugTerminalOpen, closeDebugTerminal } = useUIStore(state => ({
-    isDebugTerminalOpen: state.isDebugTerminalOpen,
-    closeDebugTerminal: state.closeDebugTerminal,
-  }));
+  const { isDebugTerminalOpen, closeDebugTerminal } = useUIContext();
 
   if (!isDebugTerminalOpen || !currentChatSession) return null;
 

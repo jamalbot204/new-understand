@@ -1,7 +1,8 @@
+
+
 import React, { createContext, useContext, useState, useCallback, ReactNode, useMemo, useRef } from 'react';
-import { useUIStore } from '../stores/uiStore';
 import { ChatSession, ChatMessage, Attachment, AICharacter, ApiRequestLog, ExportConfiguration, LogApiRequestCallback, UseAutoSendReturn, ChatMessageRole } from '../types.ts';
-import { EditMessagePanelAction, EditMessagePanelDetails } from '../types.ts';
+import { useChatSessions } from '../hooks/useChatSessions.ts';
 import { useAiCharacters } from '../hooks/useAiCharacters.ts';
 import { useGemini } from '../hooks/useGemini.ts';
 import { useImportExport } from '../hooks/useImportExport.ts';
@@ -9,11 +10,13 @@ import { useAppPersistence } from '../hooks/useAppPersistence.ts';
 import { useSidebarActions } from '../hooks/useSidebarActions.ts';
 import { useChatInteractions } from '../hooks/useChatInteractions.ts';
 import { useAutoSend } from '../hooks/useAutoSend.ts';
-import { useChatSessions } from '../hooks/useChatSessions.ts';
+import { useUIContext } from './UIContext.tsx';
+import { EditMessagePanelAction, EditMessagePanelDetails } from '../components/EditMessagePanel.tsx';
 import { DEFAULT_SETTINGS, INITIAL_MESSAGES_COUNT } from '../constants.ts';
 import { useMessageInjection } from '../hooks/useMessageInjection.ts';
 import { useApiKeyContext } from './ApiKeyContext.tsx';
 
+// For data that changes less often
 interface ChatStateContextType {
   chatHistory: ChatSession[];
   currentChatId: string | null;
@@ -27,12 +30,14 @@ interface ChatStateContextType {
   logApiRequest: LogApiRequestCallback;
 }
 
+// For frequently changing status
 interface ChatInteractionStatusContextType {
   isLoading: boolean;
   currentGenerationTimeDisplay: string;
   autoSendHook: UseAutoSendReturn;
 }
 
+// For stable action functions
 interface ChatActionsContextType {
   setChatHistory: React.Dispatch<React.SetStateAction<ChatSession[]>>;
   setCurrentChatId: (id: string | null) => Promise<void>;
@@ -82,22 +87,7 @@ const ChatInteractionStatusContext = createContext<ChatInteractionStatusContextT
 const ChatActionsContext = createContext<ChatActionsContextType | null>(null);
 
 export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { 
-    showToast, openEditPanel, closeEditPanel, requestDeleteConfirmation, 
-    requestResetAudioCacheConfirmation, isSettingsPanelOpen, closeSettingsPanel, 
-    closeSidebar, closeGitHubImportModal, toggleSelectionMode 
-  } = useUIStore(state => ({
-    showToast: state.showToast,
-    openEditPanel: state.openEditPanel,
-    closeEditPanel: state.closeEditPanel,
-    requestDeleteConfirmation: state.requestDeleteConfirmation,
-    requestResetAudioCacheConfirmation: state.requestResetAudioCacheConfirmation,
-    isSettingsPanelOpen: state.isSettingsPanelOpen,
-    closeSettingsPanel: state.closeSettingsPanel,
-    closeSidebar: state.closeSidebar,
-    closeGitHubImportModal: state.closeGitHubImportModal,
-    toggleSelectionMode: state.toggleSelectionMode,
-  }));
+  const ui = useUIContext();
   const { activeApiKey, rotateActiveKey } = useApiKeyContext();
 
   const {
@@ -112,7 +102,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const persistence = useAppPersistence(
     chatHistory, currentChatId, loadedMsgGenTimes, setLoadedMsgGenTimes,
-    loadedDisplayConfig, setLoadedDisplayConfig, showToast
+    loadedDisplayConfig, setLoadedDisplayConfig, ui.showToast
   );
   
   const triggerAutoPlayCallbackRef = useRef<(newAiMessage: ChatMessage) => Promise<void>>(() => Promise.resolve());
@@ -136,19 +126,20 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const chatInteractions = useChatInteractions({
     apiKey: activeApiKey?.value || '',
-    currentChatSession: rawCurrentChatSession || null, updateChatSession, showToast: showToast,
-    openEditPanel: openEditPanel, closeEditPanel: closeEditPanel,
+    currentChatSession: rawCurrentChatSession || null, updateChatSession, showToast: ui.showToast,
+    openEditPanel: ui.openEditPanel, closeEditPanel: ui.closeEditPanel,
     geminiHandleEditPanelSubmit: gemini.handleEditPanelSubmit,
     geminiHandleCancelGeneration: gemini.handleCancelGeneration,
     isLoadingFromGemini: gemini.isLoading,
     setMessageGenerationTimes: persistence.setMessageGenerationTimes,
     setMessagesToDisplayConfig: persistence.setMessagesToDisplayConfig,
     stopAndCancelAudio: () => {}, 
-    requestDeleteConfirmationModal: requestDeleteConfirmation,
-    requestResetAudioCacheConfirmationModal: requestResetAudioCacheConfirmation,
-    isSettingsPanelOpen: isSettingsPanelOpen,
-    closeSettingsPanel: closeSettingsPanel,
-    closeSidebar: closeSidebar,
+    activeAutoFetches: new Map(), setActiveAutoFetches: () => {},
+    requestDeleteConfirmationModal: ui.requestDeleteConfirmation,
+    requestResetAudioCacheConfirmationModal: ui.requestResetAudioCacheConfirmation,
+    isSettingsPanelOpen: ui.isSettingsPanelOpen,
+    closeSettingsPanel: ui.closeSettingsPanel,
+    closeSidebar: ui.closeSidebar,
     logApiRequest: gemini.logApiRequest,
   });
 
@@ -163,24 +154,24 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const aiCharacters = useAiCharacters(rawCurrentChatSession || null, updateChatSession);
   const sidebarActions = useSidebarActions({
     chatHistory, setChatHistory, updateChatSession, setCurrentChatId,
-    setMessagesToDisplayConfig: persistence.setMessagesToDisplayConfig, showToast: showToast,
+    setMessagesToDisplayConfig: persistence.setMessagesToDisplayConfig, showToast: ui.showToast,
   });
   const importExport = useImportExport(
     setChatHistory, setCurrentChatId, persistence.setMessageGenerationTimes,
-    persistence.setMessagesToDisplayConfig, showToast, chatHistory
+    persistence.setMessagesToDisplayConfig, ui.showToast, chatHistory
   );
 
   const messageInjection = useMessageInjection({
     updateChatSession,
     setMessagesToDisplayConfig: persistence.setMessagesToDisplayConfig,
     messagesToDisplayConfig: persistence.messagesToDisplayConfig,
-    showToast: showToast,
+    showToast: ui.showToast,
   });
 
   const handleNewChat = useCallback(async () => {
     await useChatSessionsHandleNewChat(persistence.setMessagesToDisplayConfig);
-    showToast("New chat created!", "success");
-  }, [useChatSessionsHandleNewChat, persistence.setMessagesToDisplayConfig, showToast]);
+    ui.showToast("New chat created!", "success");
+  }, [useChatSessionsHandleNewChat, persistence.setMessagesToDisplayConfig, ui.showToast]);
 
   const handleSelectChat = useCallback(async (id: string) => {
     if (autoSend.isAutoSendingActive) await autoSend.stopAutoSend();
@@ -192,27 +183,27 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (autoSend.isAutoSendingActive) await autoSend.stopAutoSend();
     }
     await useChatSessionsHandleDeleteChat(id, persistence.setMessagesToDisplayConfig, persistence.setMessageGenerationTimes);
-    showToast("Chat deleted!", "success");
-  }, [currentChatId, useChatSessionsHandleDeleteChat, persistence, autoSend, showToast]);
+    ui.showToast("Chat deleted!", "success");
+  }, [currentChatId, useChatSessionsHandleDeleteChat, persistence, autoSend, ui.showToast]);
   
   const handleAddCharacter = async (name: string, systemInstruction: string) => {
     await aiCharacters.handleAddCharacter(name, systemInstruction);
-    showToast("Character added!", "success");
+    ui.showToast("Character added!", "success");
   };
 
   const handleEditCharacter = async (id: string, name: string, systemInstruction: string) => {
     await aiCharacters.handleEditCharacter(id, name, systemInstruction);
-    showToast("Character updated!", "success");
+    ui.showToast("Character updated!", "success");
   };
 
   const handleDeleteCharacter = async (id: string) => {
     await aiCharacters.handleDeleteCharacter(id);
-    showToast("Character deleted!", "success");
+    ui.showToast("Character deleted!", "success");
   };
   
   const handleSetGithubRepo = useCallback(async (url: string | null) => {
     if (!rawCurrentChatSession) {
-      showToast("No active chat session.", "error");
+      ui.showToast("No active chat session.", "error");
       return;
     }
 
@@ -227,11 +218,11 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           timestamp: new Date(),
         }]
       }) : null);
-      showToast("GitHub repository context removed.", "success");
+      ui.showToast("GitHub repository context removed.", "success");
       return;
     }
 
-    closeGitHubImportModal();
+    ui.closeGitHubImportModal();
     
     const processingMessage: ChatMessage = {
       id: `msg-${Date.now()}-system-processing`,
@@ -245,6 +236,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }) : null);
 
     try {
+      // Clean the URL before parsing
       const cleanUrlString = url.endsWith('.git') ? url.slice(0, -4) : url;
       const urlObject = new URL(cleanUrlString);
       const urlParts = urlObject.pathname.split('/').filter(Boolean);
@@ -255,10 +247,12 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       let contextBuilder = "Here is the code I would like to discuss:\n\n";
       let fetchedFilesCount = 0;
 
+      // Recursive function to fetch all files from all directories.
       const fetchDirectoryContents = async (path: string) => {
         const contentsUrl = `https://api.github.com/repos/${owner}/${repo}/contents/${path}`;
         const response = await fetch(contentsUrl);
 
+        // Gracefully skip directories that can't be fetched (e.g., private submodules, permissions errors)
         if (!response.ok) {
             console.warn(`Could not fetch directory contents for: ${path}. Status: ${response.status}`);
             return;
@@ -277,15 +271,16 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                         fetchedFilesCount++;
                     }
                 } catch (fileFetchError) {
+                    // Log and continue if a single file fails
                     console.warn(`Could not fetch content for file: ${item.path}`, fileFetchError);
                 }
             } else if (item.type === 'dir') {
-                await fetchDirectoryContents(item.path);
+                await fetchDirectoryContents(item.path); // Recursive call for subdirectories
             }
         }
       };
 
-      await fetchDirectoryContents('');
+      await fetchDirectoryContents(''); // Start fetching from the root directory
       
       if (fetchedFilesCount === 0) {
         throw new Error("Could not fetch any readable files from the repository.");
@@ -304,7 +299,7 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           messages: [...session.messages.filter(m => m.id !== processingMessage.id), finalContextMessage],
       }) : null);
       
-      showToast("GitHub repository context loaded!", "success");
+      ui.showToast("GitHub repository context loaded!", "success");
 
     } catch (error: any) {
       console.error("Error processing GitHub repo:", error);
@@ -318,9 +313,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         ...session,
         messages: [...session.messages.filter(m => m.id !== processingMessage.id), errorMessage]
       }) : null);
-      showToast(`Error: ${error.message}`, "error");
+      ui.showToast(`Error: ${error.message}`, "error");
     }
-  }, [rawCurrentChatSession, updateChatSession, showToast, closeGitHubImportModal]);
+  }, [rawCurrentChatSession, updateChatSession, ui]);
 
   const performActualAudioCacheReset = useCallback(async (sessionId: string, messageId: string) => {
     await updateChatSession(sessionId, session => {
@@ -332,8 +327,8 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updatedMessages[messageIndex] = { ...updatedMessages[messageIndex], cachedAudioBuffers: null };
       return { ...session, messages: updatedMessages };
     });
-    showToast("Audio cache reset for message.", "success");
-  }, [updateChatSession, showToast]);
+    ui.showToast("Audio cache reset for message.", "success");
+  }, [updateChatSession, ui.showToast]);
 
   const handleDeleteMultipleMessages = useCallback(async (messageIds: string[]) => {
     if (!rawCurrentChatSession || messageIds.length === 0) return;
@@ -348,9 +343,9 @@ export const ChatProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }).catch(console.error);
       return { ...session, messages: newMessages };
     });
-    showToast(`${messageIds.length} message(s) deleted.`, "success");
-    toggleSelectionMode();
-  }, [rawCurrentChatSession, updateChatSession, persistence, showToast, toggleSelectionMode]);
+    ui.showToast(`${messageIds.length} message(s) deleted.`, "success");
+    ui.toggleSelectionMode();
+  }, [rawCurrentChatSession, updateChatSession, persistence, ui]);
 
   const visibleMessagesForCurrentChat = useMemo(() => {
     if (!rawCurrentChatSession || !rawCurrentChatSession.id) return [];

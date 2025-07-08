@@ -1,22 +1,31 @@
+
+
 import React, { useState, useEffect, useCallback, memo } from 'react';
 import { useChatActions, useChatInteractionStatus } from '../contexts/ChatContext.tsx';
-import { useUIStore } from '../stores/uiStore';
-import { ChatMessageRole, Attachment, EditMessagePanelAction } from '../types.ts';
+import { useUIContext } from '../contexts/UIContext.tsx';
+import { ChatMessageRole, Attachment } from '../types.ts';
 import { CloseIcon, SparklesIcon, UserIcon, SaveDiskIcon, XCircleIcon, SubmitPlayIcon, ContinueArrowIcon } from './Icons.tsx';
 import useAutoResizeTextarea from '../hooks/useAutoResizeTextarea.ts';
+
+export enum EditMessagePanelAction {
+  CANCEL = 'cancel',
+  SAVE_LOCALLY = 'save_locally',
+  SAVE_AND_SUBMIT = 'save_and_submit',
+  CONTINUE_PREFIX = 'continue_prefix',
+}
+
+export interface EditMessagePanelDetails {
+  sessionId: string;
+  messageId: string;
+  originalContent: string;
+  role: ChatMessageRole;
+  attachments?: Attachment[];
+}
 
 const EditMessagePanel: React.FC = memo(() => {
   const { handleEditPanelSubmit, handleCancelGeneration } = useChatActions();
   const { isLoading } = useChatInteractionStatus();
-  const { 
-    isEditPanelOpen, 
-    editingMessageDetail, 
-    closeEditPanel 
-  } = useUIStore(state => ({
-    isEditPanelOpen: state.isEditPanelOpen,
-    editingMessageDetail: state.editingMessageDetail,
-    closeEditPanel: state.closeEditPanel,
-  }));
+  const { isEditPanelOpen, editingMessageDetail, closeEditPanel } = useUIContext();
 
   const [editedContent, setEditedContent] = useState('');
   const textareaRef = useAutoResizeTextarea<HTMLTextAreaElement>(editedContent, 300);
@@ -35,7 +44,7 @@ const EditMessagePanel: React.FC = memo(() => {
 
   const handleAction = useCallback((action: EditMessagePanelAction) => {
     if (!editingMessageDetail) return;
-    handleEditPanelSubmit(action, editedContent, editingMessageDetail);
+    handleEditPanelSubmit(action, editedContent, editingMessageDetail as any);
   }, [editingMessageDetail, handleEditPanelSubmit, editedContent]);
   
   const handleCancelClick = useCallback(() => {
@@ -73,7 +82,7 @@ const EditMessagePanel: React.FC = memo(() => {
             <div className="mt-3 pt-3 border-t border-[var(--aurora-border)]">
                 <p className="text-xs text-gray-400 mb-1.5">Attachments (read-only in edit mode):</p>
                 <div className="flex flex-wrap gap-2 max-h-20 overflow-y-auto hide-scrollbar">
-                {editingMessageDetail.attachments.map((att: Attachment) => (
+                {editingMessageDetail.attachments.map(att => (
                     <span key={att.id} className="text-xs bg-white/5 px-2 py-1 rounded-full" title={att.name}>{att.name}</span>
                 ))}
                 </div>

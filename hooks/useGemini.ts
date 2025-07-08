@@ -1,9 +1,11 @@
+
+
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { ChatSession, ChatMessage, ChatMessageRole, GeminiSettings, Attachment, AICharacter, HarmCategory, HarmBlockThreshold, FullResponseData, UserMessageInput, LogApiRequestCallback, UseGeminiReturn, GeminiHistoryEntry } from '../types.ts';
-import { getFullChatResponse, generateMimicUserResponse, clearCachedChat as geminiServiceClearCachedChat, mapMessagesToGeminiHistoryInternal } from '../services/geminiService.ts';
+import { getFullChatResponse, generateMimicUserResponse, clearCachedChat as geminiServiceClearCachedChat, mapMessagesToGeminiHistoryInternal } from '../services/geminiService.ts'; // Updated import
 import { DEFAULT_SETTINGS } from '../constants.ts';
-import { EditMessagePanelAction, EditMessagePanelDetails } from '../types.ts'; // Corrected import path
-import { findPrecedingUserMessageIndex, getHistoryUpToMessage } from '../services/utils.ts';
+import { EditMessagePanelAction, EditMessagePanelDetails } from '../components/EditMessagePanel.tsx';
+import { findPrecedingUserMessageIndex, getHistoryUpToMessage } from '../services/utils.ts'; // Import helpers
 
 // Define props for the hook
 interface UseGeminiProps {
@@ -11,7 +13,7 @@ interface UseGeminiProps {
   currentChatSession: ChatSession | null;
   updateChatSession: (sessionId: string, updater: (session: ChatSession) => ChatSession | null) => Promise<void>;
   logApiRequestDirectly: LogApiRequestCallback;
-  onNewAIMessageFinalized?: (newAiMessage: ChatMessage) => Promise<void>;
+  onNewAIMessageFinalized?: (newAiMessage: ChatMessage) => Promise<void>; // Changed to async to align with new trigger 
   setMessageGenerationTimes: (updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => Promise<void>;
   rotateApiKey: () => Promise<void>;
 }
@@ -45,8 +47,8 @@ export function useGemini({
     if (isLoading && generationStartTimeRef.current) {
       setCurrentGenerationTimeDisplay("0.0s");
       intervalId = window.setInterval(() => {
-        if (generationStartTimeRef.current !== null) {
-          const elapsedSeconds = (Date.now() - generationStartTimeRef.current) / 1000;
+        if (generationStartTimeRef.current !== null) { // Changed: Explicit null check
+          const elapsedSeconds = (Date.now() - generationStartTimeRef.current) / 1000; // Changed: Removed !
           setCurrentGenerationTimeDisplay(`${elapsedSeconds.toFixed(1)}s`);
         }
       }, 100);
@@ -161,10 +163,10 @@ export function useGemini({
 
     requestCancelledByUserRef.current = false;
     onFullResponseCalledForPendingMessageRef.current = false;
-    originalMessageSnapshotRef.current = null; 
+    originalMessageSnapshotRef.current = null; // Reset snapshot
     setLastMessageHadAttachments(!!(attachments && attachments.length > 0 && !isTemporaryContext));
 
-    let sessionToUpdate = { ...currentChatSession }; 
+    let sessionToUpdate = { ...currentChatSession }; // Operate on a copy for preparing local state
     let baseSettingsForAPICall = { ...currentChatSession.settings };
     let settingsOverrideForAPICall: Partial<GeminiSettings & { _characterIdForAPICall?: string }> = {};
     let characterNameForResponse: string | undefined = undefined;
@@ -175,7 +177,7 @@ export function useGemini({
         const character = (currentChatSession.aiCharacters || []).find(c => c.id === characterIdForAPICall);
         if (character) {
             settingsOverrideForAPICall.systemInstruction = character.systemInstruction;
-            settingsOverrideForAPICall.userPersonaInstruction = undefined; 
+            settingsOverrideForAPICall.userPersonaInstruction = undefined; // Character mode overrides general user persona for this turn
             settingsOverrideForAPICall._characterIdForAPICall = character.id;
             characterNameForResponse = character.name;
         } else {
@@ -184,63 +186,77 @@ export function useGemini({
         }
     }
 
+    // 1. Determine finalUserMessageInputForAPI (content for the current turn sent to chat.sendMessage())
     let finalUserMessageInputForAPI: UserMessageInput;
     if (currentChatSession.isCharacterModeActive && characterIdForAPICall && !promptContent.trim() && (!attachments || attachments.length === 0) && !historyContextOverride) {
+        // Character trigger with empty physical input - use contextual info if available
         const characterTriggered = (currentChatSession.aiCharacters || []).find(c => c.id === characterIdForAPICall);
         finalUserMessageInputForAPI = (characterTriggered?.contextualInfo?.trim())
             ? { text: characterTriggered.contextualInfo, attachments: [] }
-            : { text: "", attachments: [] }; 
+            : { text: "", attachments: [] }; // Still send empty if no contextual info
     } else {
+        // Standard message, edit, or temporary context
         finalUserMessageInputForAPI = { text: promptContent, attachments: attachments || [] };
     }
 
+    // Guard against truly empty messages in non-character mode if not an edit
     if (!characterIdForAPICall && !historyContextOverride && !finalUserMessageInputForAPI.text.trim() && (!finalUserMessageInputForAPI.attachments || finalUserMessageInputForAPI.attachments.length === 0) && !currentChatSession.githubRepoContext) {
         return;
     }
 
+    // 2. Determine historyForGeminiSDK (history *before* the current turn for ai.chats.create())
     let historyForGeminiSDK: ChatMessage[];
     if (historyContextOverride) {
+        // This is typically from an edit action. `historyContextOverride` is the state *before* the edited message.
         historyForGeminiSDK = [...historyContextOverride];
     } else {
+        // This is for a new message. `sessionToUpdate.messages` is the state *before* this new message.
         historyForGeminiSDK = [...sessionToUpdate.messages];
     }
 
+    // 3. Prepare for UI update: Create a ChatMessage object for the current user's turn if applicable
     let currentTurnUserMessageForUI: ChatMessage | null = null;
     if (!isTemporaryContext) {
+        // This applies to new messages and standard edits (where historyContextOverride is present)
+        // The message created here represents the user's action that will be sent to the API.
         currentTurnUserMessageForUI = {
-            id: `msg-${Date.now()}-user-turn-${Math.random().toString(36).substring(2,7)}`, 
+            id: `msg-${Date.now()}-user-turn-${Math.random().toString(36).substring(2,7)}`, // New ID for this UI representation
             role: ChatMessageRole.USER,
             content: finalUserMessageInputForAPI.text,
-            attachments: finalUserMessageInputForAPI.attachments?.map(att => ({...att})), 
+            attachments: finalUserMessageInputForAPI.attachments?.map(att => ({...att})), // Ensure a fresh copy of attachments
             timestamp: new Date(),
         };
         userMessageIdForPotentialTitleUpdate = currentTurnUserMessageForUI.id;
     }
 
+
+    // 4. Update session for UI (locally) - This adds the user's turn and AI placeholder to the UI
     generationStartTimeRef.current = Date.now();
     setIsLoading(true);
     setCurrentGenerationTimeDisplay("0.0s");
     abortControllerRef.current = new AbortController();
 
     const modelMessageId = `msg-${Date.now()}-model-${Math.random().toString(36).substring(2,7)}`;
-    pendingMessageIdRef.current = modelMessageId; 
+    pendingMessageIdRef.current = modelMessageId; // Track the AI message ID we're waiting for
     const placeholderAiMessage: ChatMessage = {
         id: modelMessageId, role: ChatMessageRole.MODEL, content: '',
         timestamp: new Date(), isStreaming: true, characterName: characterNameForResponse,
     };
 
-    let messagesForUIUpdate: ChatMessage[] = [...historyForGeminiSDK]; 
-    if (currentTurnUserMessageForUI) {
+    let messagesForUIUpdate: ChatMessage[] = [...historyForGeminiSDK]; // Start with history seen by SDK
+    if (currentTurnUserMessageForUI) { // If there's a UI representation of the user's current turn
         messagesForUIUpdate.push(currentTurnUserMessageForUI);
     }
-    messagesForUIUpdate.push(placeholderAiMessage); 
+    messagesForUIUpdate.push(placeholderAiMessage); // Add AI placeholder
 
     let newTitleForSession = sessionToUpdate.title;
     if (userMessageIdForPotentialTitleUpdate && sessionToUpdate.title === "New Chat") {
+        // Check if currentTurnUserMessageForUI is effectively the first user message in the displayed sequence
         const userMessagesInUiUpdate = messagesForUIUpdate.filter(m => m.role === ChatMessageRole.USER);
         if (userMessagesInUiUpdate.length > 0 && userMessagesInUiUpdate[userMessagesInUiUpdate.length-1].id === userMessageIdForPotentialTitleUpdate) {
+            // Count user messages in the history *before* this new one
             const userMessagesInHistory = historyForGeminiSDK.filter(m => m.role === ChatMessageRole.USER).length;
-            if (userMessagesInHistory === 0) { 
+            if (userMessagesInHistory === 0) { // This is indeed the first user message overall
                  newTitleForSession = (finalUserMessageInputForAPI.text || "Chat with attachments").substring(0, 35) +
                                  ((finalUserMessageInputForAPI.text.length > 35 || (!finalUserMessageInputForAPI.text && finalUserMessageInputForAPI.attachments && finalUserMessageInputForAPI.attachments.length > 0)) ? "..." : "");
             }
@@ -251,18 +267,19 @@ export function useGemini({
         ...s,
         messages: messagesForUIUpdate,
         lastUpdatedAt: new Date(),
-        title: newTitleForSession 
+        title: newTitleForSession // Apply title update
     }) : null);
 
     const activeChatIdForThisCall = currentChatSession.id;
 
+    // 5. Call getFullChatResponse
     await getFullChatResponse(
         apiKey,
         activeChatIdForThisCall,
-        finalUserMessageInputForAPI, 
+        finalUserMessageInputForAPI, // Current turn's content
         currentChatSession.model,
         baseSettingsForAPICall,
-        historyForGeminiSDK, 
+        historyForGeminiSDK, // History *before* current turn
         async (responseData: FullResponseData) => {
             if (requestCancelledByUserRef.current && pendingMessageIdRef.current === modelMessageId) return;
             onFullResponseCalledForPendingMessageRef.current = true;
@@ -285,6 +302,7 @@ export function useGemini({
                     msg.id === modelMessageId ? newAiMessage : msg
                 )
             }) : null);
+            // Call onNewAIMessageFinalized *after* the session state is updated
             if (onNewAIMessageFinalized) {
                 await onNewAIMessageFinalized(newAiMessage);
             }
@@ -333,14 +351,15 @@ export function useGemini({
             const currentPendingMsgIdForComplete = pendingMessageIdRef.current;
 
             if (userDidCancel && currentPendingMsgIdForComplete === modelMessageId) { /* Already handled by cancel logic */ }
-            else if (currentPendingMsgIdForComplete === modelMessageId) { 
+            else if (currentPendingMsgIdForComplete === modelMessageId) { // AI interaction finished for this messageId
                 setIsLoading(false);
                 setLastMessageHadAttachments(false);
 
-                if (!onFullResponseCalledForPendingMessageRef.current) { 
+                if (!onFullResponseCalledForPendingMessageRef.current) { // If onFullResponse was NOT called (e.g. stream error)
                     await updateChatSession(activeChatIdForThisCall, session => {
                         if (!session) return null;
                         const messageInState = session.messages.find(m => m.id === modelMessageId);
+                        // If the message is still streaming and not an error, mark it as an error.
                         if (messageInState && messageInState.isStreaming && messageInState.role !== ChatMessageRole.ERROR) {
                             return {
                                 ...session,
@@ -352,17 +371,18 @@ export function useGemini({
                                 lastUpdatedAt: new Date()
                             };
                         }
-                        return { ...session, lastUpdatedAt: new Date() }; 
+                        return { ...session, lastUpdatedAt: new Date() }; // Ensure lastUpdatedAt is updated
                     });
-                } else { 
+                } else { // onFullResponse WAS called, just update timestamp
                      await updateChatSession(activeChatIdForThisCall, session => {
                         if (!session) return null;
                         return { ...session, lastUpdatedAt: new Date() };
                     });
                 }
                 pendingMessageIdRef.current = null;
-                originalMessageSnapshotRef.current = null; 
+                originalMessageSnapshotRef.current = null; // Clear snapshot after completion
             }
+            // Cleanup refs for this specific messageId
             if (abortControllerRef.current && currentPendingMsgIdForComplete === modelMessageId) abortControllerRef.current = null;
             if (currentPendingMsgIdForComplete === modelMessageId) requestCancelledByUserRef.current = false;
             onFullResponseCalledForPendingMessageRef.current = false;
@@ -434,7 +454,7 @@ export function useGemini({
 
     if (lastMessage.role === ChatMessageRole.USER) {
         const userMessageInputForAPI: UserMessageInput = { text: lastMessage.content, attachments: lastMessage.attachments };
-        const historyForAPICall = sessionToUpdate.messages.slice(0, -1); 
+        const historyForAPICall = sessionToUpdate.messages.slice(0, -1); // History *before* the last user message
         if (lastMessage.attachments && lastMessage.attachments.length > 0) setLastMessageHadAttachments(true);
 
         const modelMessageId = `msg-${Date.now()}-model-flow-${Math.random().toString(36).substring(2,7)}`;
@@ -444,16 +464,17 @@ export function useGemini({
             id: modelMessageId, role: ChatMessageRole.MODEL, content: '',
             timestamp: new Date(), isStreaming: true,
         };
+        // UI Update: Add AI placeholder AFTER the last user message that is triggering this flow.
         await updateChatSession(activeChatIdForThisCall, s => s ? ({ ...s, messages: [...s.messages, placeholderAiMessage], lastUpdatedAt: new Date() }) : null);
 
 
         await getFullChatResponse(
             apiKey,
             activeChatIdForThisCall,
-            userMessageInputForAPI, 
+            userMessageInputForAPI, // Content of the last user message
             currentChatSession.model,
             currentChatSession.settings,
-            historyForAPICall, 
+            historyForAPICall, // History *before* the last user message
             async (responseData: FullResponseData) => {
                 if (requestCancelledByUserRef.current && pendingMessageIdRef.current === operationPendingMessageId) return;
                 onFullResponseCalledForPendingMessageRef.current = true;
@@ -482,7 +503,7 @@ export function useGemini({
             () => commonOnCompleteForFlow(operationPendingMessageId),
             logApiRequestDirectly, 
             abortControllerRef.current.signal,
-            undefined, 
+            undefined, // No settings override for standard flow
             currentChatSession.aiCharacters,
             currentChatSession.githubRepoContext?.contextText
         );
@@ -496,6 +517,7 @@ export function useGemini({
             id: mimicUserMessageId, role: ChatMessageRole.USER, content: '',
             timestamp: new Date(), isStreaming: true,
         };
+        // UI Update: Add placeholder for the user-mimic message
         await updateChatSession(activeChatIdForThisCall, s => s ? ({...s, messages: [...s.messages, placeholderUserMimicMessage], lastUpdatedAt: new Date() }) : null);
 
         try {
@@ -515,15 +537,16 @@ export function useGemini({
                 _characterNameForLog: "[Continue Flow - User Mimic]"
             };
 
+            // Use standard, unflipped history including the last MODEL/ERROR message
             const historyForStandardGeminiCall: GeminiHistoryEntry[] = mapMessagesToGeminiHistoryInternal(
-                sessionToUpdate.messages.slice(0,-1), 
+                sessionToUpdate.messages.slice(0,-1), // Actual history including the last MODEL/ERROR message
                 baseSettingsForMimic
             );
 
             const generatedText = await generateMimicUserResponse(
                 apiKey,
                 currentChatSession.model,
-                historyForStandardGeminiCall, 
+                historyForStandardGeminiCall, // Pass the standard history
                 persona,
                 baseSettingsForMimic,
                 logApiRequestDirectly,
@@ -544,6 +567,8 @@ export function useGemini({
              onFullResponseCalledForPendingMessageRef.current = false;
             if (requestCancelledByUserRef.current && pendingMessageIdRef.current === operationPendingMessageId) return;
              if (error.name === 'AbortError' && pendingMessageIdRef.current === operationPendingMessageId) {
+                // On abort during mimic, we just want to remove the placeholder.
+                // The incorrect check for originalMessageSnapshotRef was causing a crash.
                 await updateChatSession(activeChatIdForThisCall, s => s ? ({ ...s, messages: s.messages.filter(m => m.id !== pendingMessageIdRef.current) }) : null);
             } else if (pendingMessageIdRef.current === operationPendingMessageId) {
                 const errorMessageContent: ChatMessage = {
@@ -583,7 +608,7 @@ export function useGemini({
 
     const userPromptMessage = currentChatSession.messages[userPromptIndex];
     const userMessageInputForAPI: UserMessageInput = { text: userPromptMessage.content, attachments: userPromptMessage.attachments };
-    const historyForGeminiService = getHistoryUpToMessage(currentChatSession.messages, userPromptIndex + 1); 
+    const historyForGeminiService = getHistoryUpToMessage(currentChatSession.messages, userPromptIndex + 1); // History includes the user prompt, which is correct for init. SDK handles not resending it.
     setLastMessageHadAttachments(!!(userMessageInputForAPI.attachments && userMessageInputForAPI.attachments.length > 0));
 
     const aiMessageToUpdate = currentChatSession.messages[aiMessageIndex];
@@ -673,10 +698,10 @@ export function useGemini({
     await getFullChatResponse(
       apiKey,
       sessionId,
-      userMessageInputForAPI, 
+      userMessageInputForAPI, // Current user's input that led to the AI message
       currentChatSession.model,
       currentChatSession.settings,
-      historyForGeminiService, 
+      historyForGeminiService, // History up to and including the user message
       async (responseData: FullResponseData) => {
         if (requestCancelledByUserRef.current && pendingMessageIdRef.current === aiMessageIdToRegenerate) return;
         onFullResponseCalledForPendingMessageRef.current = true;
@@ -704,9 +729,6 @@ export function useGemini({
         if (requestCancelledByUserRef.current && pendingMessageIdRef.current === aiMessageIdToRegenerate) {
             if(isLoading) setIsLoading(false);
             setLastMessageHadAttachments(false);
-            if (originalMessageSnapshotRef.current && originalMessageSnapshotRef.current.id === aiMessageIdToRegenerate) {
-                await updateChatSession(sessionId, s => s ? ({ ...s, messages: s.messages.map(m => m.id === originalMessageSnapshotRef.current!.id ? originalMessageSnapshotRef.current! : m) }) : null);
-            }
             return;
         }
         onFullResponseCalledForPendingMessageRef.current = false;
@@ -802,15 +824,19 @@ export function useGemini({
         let historyForAPI: ChatMessage[];
 
         if (role === ChatMessageRole.USER) {
+            // History *before* the message being edited.
             historyForAPI = getHistoryUpToMessage(currentChatSession.messages, messageBeingEditedIndex);
-        } else { 
+        } else { // Role is MODEL or ERROR
             const precedingUserMessageIndex = findPrecedingUserMessageIndex(currentChatSession.messages, messageBeingEditedIndex);
             if (precedingUserMessageIndex === -1) {
                 console.error("Cannot resubmit AI edit: No preceding user message found.");
                 return;
             }
+            // History *up to and including* the user message that led to the AI message.
             historyForAPI = getHistoryUpToMessage(currentChatSession.messages, precedingUserMessageIndex + 1);
         }
+        // `newContent` (and `attachments` if user role) will be passed as the current turn's prompt.
+        // `historyForAPI` will be used as `historyContextOverride`.
         await handleSendMessage(newContent, role === ChatMessageRole.USER ? attachments : currentChatSession.messages[findPrecedingUserMessageIndex(currentChatSession.messages, messageBeingEditedIndex)]?.attachments, historyForAPI);
 
     } else if (action === EditMessagePanelAction.CONTINUE_PREFIX) {
@@ -862,10 +888,12 @@ export function useGemini({
              return;
         }
 
+        // History should include the original user prompt that led to the AI message being continued.
         const historyContext = getHistoryUpToMessage(currentChatSession.messages, userPromptForContinuationIndex + 1);
 
+        // The content for the API call is the new prefix (newContent)
         const userMessageInputForContinue: UserMessageInput = {
-            text: newContent, 
+            text: newContent, // This is the prefix the AI will continue from.
             attachments: currentChatSession.messages[userPromptForContinuationIndex].attachments
         };
 
@@ -925,10 +953,10 @@ export function useGemini({
         await getFullChatResponse(
             apiKey,
             sessionId,
-            userMessageInputForContinue, 
+            userMessageInputForContinue, // New prefix to continue
             currentChatSession.model,
             currentChatSession.settings,
-            historyContext, 
+            historyContext, // History including the user prompt that led to the original AI message
             async (responseData) => {
                 if (requestCancelledByUserRef.current && pendingMessageIdRef.current === messageId) return;
                 onFullResponseCalledForPendingMessageRef.current = true;
@@ -954,6 +982,7 @@ export function useGemini({
             currentChatSession.githubRepoContext?.contextText
         );
     }
+    // SAVE_LOCALLY and CANCEL are handled by useChatInteractions hook's wrapper
   }, [
       apiKey, currentChatSession, isLoading, updateChatSession, handleSendMessage, logApiRequestDirectly,
       setMessageGenerationTimes, onNewAIMessageFinalized, setLastMessageHadAttachments, rotateApiKey
