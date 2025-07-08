@@ -1,15 +1,25 @@
 // src/components/MultiSelectActionBar.tsx
-import React, { memo, useCallback } from 'react';
+import React, { memo, useCallback, useMemo } from 'react';
 import { useUIStore } from '../stores/uiStore.ts';
-import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
+import { useSessionStore } from '../stores/sessionStore.ts';
+import { useAppConfigStore } from '../stores/appConfigStore.ts';
+import { useChatStore } from '../stores/chatStore.ts';
 import { useAudioContext } from '../contexts/AudioContext.tsx';
 import { TrashIcon, AudioResetIcon, XCircleIcon } from './Icons.tsx';
+import { INITIAL_MESSAGES_COUNT } from '../constants.ts';
 
 const MultiSelectActionBar: React.FC = memo(() => {
   const { selectedMessageIds } = useUIStore();
   const { clearSelection, toggleSelectionMode, selectAllVisible } = useUIStore(state => state.actions);
-  const { visibleMessagesForCurrentChat } = useChatState();
-  const { handleDeleteMultipleMessages } = useChatActions();
+  
+  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
+  const messagesToDisplay = useAppConfigStore(s => s.messagesToDisplayConfig[currentChatSession?.id ?? ''] ?? currentChatSession?.settings.maxInitialMessagesDisplayed ?? INITIAL_MESSAGES_COUNT);
+  const visibleMessagesForCurrentChat = useMemo(() => {
+      if (!currentChatSession) return [];
+      return currentChatSession.messages.slice(-messagesToDisplay);
+  }, [currentChatSession, messagesToDisplay]);
+
+  const { deleteMultipleMessages } = useChatStore(state => state.actions);
   const audio = useAudioContext();
 
   const { handleResetAudioCacheForMultipleMessages } = audio;
@@ -18,9 +28,9 @@ const MultiSelectActionBar: React.FC = memo(() => {
   const visibleMessageIds = visibleMessagesForCurrentChat.map(m => m.id);
 
   const handleDelete = useCallback(() => {
-    if (selectedCount === 0) return;
-    handleDeleteMultipleMessages(Array.from(selectedMessageIds));
-  }, [selectedCount, handleDeleteMultipleMessages, selectedMessageIds]);
+    if (selectedCount === 0 || !currentChatSession) return;
+    deleteMultipleMessages(Array.from(selectedMessageIds));
+  }, [selectedCount, deleteMultipleMessages, selectedMessageIds, currentChatSession]);
 
   const handleResetAudio = useCallback(() => {
     if (selectedCount === 0) return;

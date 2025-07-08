@@ -1,6 +1,6 @@
 // src/components/TtsSettingsModal.tsx
 import React, { useState, useEffect, memo, useCallback } from 'react';
-import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
+import { useSessionStore } from '../stores/sessionStore.ts';
 import { useUIStore } from '../stores/uiStore.ts';
 import { TTSSettings, TTSModelId, TTSVoiceId } from '../types.ts';
 import { DEFAULT_TTS_SETTINGS, TTS_MODELS, TTS_VOICES } from '../constants.ts';
@@ -8,8 +8,8 @@ import { CloseIcon, PencilIcon } from './Icons.tsx';
 import InstructionEditModal from './InstructionEditModal.tsx';
 
 const TtsSettingsModal: React.FC = memo(() => {
-  const { currentChatSession } = useChatState();
-  const { updateChatSession } = useChatActions();
+  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
+  const { updateChatSession } = useSessionStore(state => state.actions);
   const isTtsSettingsModalOpen = useUIStore(state => state.isTtsSettingsModalOpen);
   const { closeTtsSettingsModal } = useUIStore(state => state.actions);
 

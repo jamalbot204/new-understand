@@ -1,10 +1,11 @@
-
+// components/ChatAttachmentsModal.tsx
 
 import React, { memo, useCallback } from 'react';
 import { AttachmentWithContext, ChatMessageRole } from '../types.ts';
 import { CloseIcon, DocumentIcon, PlayCircleIcon, ArrowUturnLeftIcon, UserIcon, SparklesIcon } from './Icons.tsx'; // Assuming Sparkles for AI
 import RefreshAttachmentButton from './RefreshAttachmentButton.tsx'; // Import the button
-import { useChatState, useChatActions, useChatInteractionStatus } from '../contexts/ChatContext.tsx';
+import { useSessionStore } from '../stores/sessionStore.ts';
+import { useChatStore } from '../stores/chatStore.ts';
 
 interface ChatAttachmentsModalProps {
   isOpen: boolean;
@@ -21,9 +22,9 @@ const ChatAttachmentsModal: React.FC<ChatAttachmentsModalProps> = memo(({
   onClose,
   onGoToMessage,
 }) => {
-  const { currentChatSession } = useChatState();
-  const { handleReUploadAttachment } = useChatActions();
-  const { isLoading } = useChatInteractionStatus();
+  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
+  const { reUploadAttachment } = useChatStore(state => state.actions);
+  const isLoading = useChatStore(state => state.isLoading);
 
   const getFileIcon = useCallback((item: AttachmentWithContext) => {
     const { attachment } = item;
@@ -90,7 +91,7 @@ const ChatAttachmentsModal: React.FC<ChatAttachmentsModalProps> = memo(({
                   {item.attachment.fileUri && (
                     <RefreshAttachmentButton 
                       attachment={item.attachment}
-                      onReUpload={() => handleReUploadAttachment(currentChatSession!.id, item.messageId, item.attachment.id)}
+                      onReUpload={() => reUploadAttachment(currentChatSession!.id, item.messageId, item.attachment.id)}
                       disabled={item.attachment.isReUploading || isLoading}
                     />
                   )}

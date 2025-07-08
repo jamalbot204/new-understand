@@ -1,20 +1,21 @@
-import React, { memo, Suspense, lazy } from 'react';
-// The UIProvider is no longer needed and has been removed.
-import { ChatProvider } from './contexts/ChatContext.tsx';
+import React, { memo } from 'react';
+import { useUIStore } from './stores/uiStore.ts'; 
 import { AudioProvider } from './contexts/AudioContext.tsx';
-// The ApiKeyProvider is no longer needed and has been removed.
+import AppContent from './components/AppContent.tsx';
 
-const AppContent = lazy(() => import('./components/AppContent.tsx'));
 
 const App: React.FC = memo(() => {
+  
+  React.useEffect(() => {
+    // Initialize stores that need to load data from DB.
+    // This is a good place to trigger initial loads.
+    useUIStore.getState().actions.initializeLayout();
+  }, []);
+
   return (
-    <ChatProvider>
-      <AudioProvider>
-        <Suspense fallback={<div>Loading...</div>}>
-          <AppContent />
-        </Suspense>
-      </AudioProvider>
-    </ChatProvider>
+    <AudioProvider>
+      <AppContent />
+    </AudioProvider>
   );
 });
 

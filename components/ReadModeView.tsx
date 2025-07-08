@@ -6,7 +6,7 @@ import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { CloseIcon } from './Icons.tsx';
 import AdvancedAudioPlayer from './AdvancedAudioPlayer.tsx';
 import { useAudioContext } from '../contexts/AudioContext.tsx';
-import { useChatState } from '../contexts/ChatContext.tsx';
+import { useSessionStore } from '../stores/sessionStore.ts';
 
 // Import and register only the necessary languages
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
@@ -71,7 +71,7 @@ const CodeBlock: React.FC<React.PropsWithChildren<{ inline?: boolean; className?
 
 const ReadModeView: React.FC<ReadModeViewProps> = memo(({ isOpen, content, onClose, onGoToMessage }) => {
   const audio = useAudioContext();
-  const { currentChatSession } = useChatState();
+  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
 
   const handleGoToMessageFromReadMode = useCallback(() => {
     if (onGoToMessage) {

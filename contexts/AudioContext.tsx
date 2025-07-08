@@ -1,9 +1,10 @@
 // contexts/AudioContext.tsx
-import React, { createContext, useContext, useRef, ReactNode, useEffect, useCallback, useMemo } from 'react';
+import React, { createContext, useContext, useRef, ReactNode, useCallback, useMemo } from 'react';
 import { AudioPlayerState, ChatMessage } from '../types.ts';
 import { useAudioPlayer } from '../hooks/useAudioPlayer.ts';
 import { useAudioControls } from '../hooks/useAudioControls.ts';
-import { useChatState, useChatActions } from './ChatContext.tsx';
+import { useSessionStore } from '../stores/sessionStore.ts';
+import { useChatStore } from '../stores/chatStore.ts';
 import { useUIStore } from '../stores/uiStore.ts';
 import { useAutoPlay } from '../hooks/useAutoPlay.ts';
 import { splitTextForTts } from '../services/utils.ts';
@@ -34,8 +35,11 @@ interface AudioContextType {
 const AudioContext = createContext<AudioContextType | null>(null);
 
 export const AudioProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  const { currentChatSession, logApiRequest } = useChatState();
-  const { updateChatSession } = useChatActions();
+  const { currentChatSession } = useSessionStore(state => ({
+    currentChatSession: state.chatHistory.find(s => s.id === state.currentChatId)
+  }));
+  const { updateChatSession } = useSessionStore(state => state.actions);
+  const { logApiRequest } = useChatStore(() => ({ logApiRequest: () => {} })); // Placeholder
   const uiActions = useUIStore(state => state.actions);
   const { activeApiKey } = useApiKeyStore();
   const apiKey = activeApiKey?.value || '';
@@ -64,7 +68,7 @@ export const AudioProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
   const audioControls = useAudioControls({
     apiKey: apiKey,
-    currentChatSession: currentChatSession,
+    currentChatSession: currentChatSession || null,
     updateChatSession: updateChatSession,
     logApiRequest: logApiRequest,
     showToast: uiActions.showToast,
@@ -77,17 +81,10 @@ export const AudioProvider: React.FC<{ children: ReactNode }> = ({ children }) =
   audioControlsHookRef.current = audioControls;
 
   const autoPlay = useAutoPlay({
-    currentChatSession: currentChatSession,
+    currentChatSession: currentChatSession || null,
     playFunction: audioControls.handlePlayTextForMessage,
   });
   
-  const { triggerAutoPlayForNewMessage } = useChatActions();
-  useEffect(() => {
-    if (triggerAutoPlayForNewMessage && (triggerAutoPlayForNewMessage as any)._placeholder) {
-      (triggerAutoPlayForNewMessage as any)(autoPlay.triggerAutoPlayForNewMessage);
-    }
-  }, [triggerAutoPlayForNewMessage, autoPlay.triggerAutoPlayForNewMessage]);
-
   const handleResetAudioCacheForMultipleMessages = useCallback(async (messageIds: string[]) => {
     if (!currentChatSession || messageIds.length === 0) return;
     

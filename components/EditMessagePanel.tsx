@@ -1,29 +1,14 @@
 // src/components/EditMessagePanel.tsx
-import React, { useState, useEffect, useCallback, memo } from 'react';
-import { useChatActions, useChatInteractionStatus } from '../contexts/ChatContext.tsx';
+import { useState, useEffect, useCallback, memo } from 'react';
+import { useChatStore } from '../stores/chatStore.ts';
 import { useUIStore } from '../stores/uiStore.ts';
-import { ChatMessageRole, Attachment } from '../types.ts';
+import { ChatMessageRole, EditMessagePanelAction } from '../types.ts';
 import { CloseIcon, SparklesIcon, UserIcon, SaveDiskIcon, XCircleIcon, SubmitPlayIcon, ContinueArrowIcon } from './Icons.tsx';
 import useAutoResizeTextarea from '../hooks/useAutoResizeTextarea.ts';
 
-export enum EditMessagePanelAction {
-  CANCEL = 'cancel',
-  SAVE_LOCALLY = 'save_locally',
-  SAVE_AND_SUBMIT = 'save_and_submit',
-  CONTINUE_PREFIX = 'continue_prefix',
-}
-
-export interface EditMessagePanelDetails {
-  sessionId: string;
-  messageId: string;
-  originalContent: string;
-  role: ChatMessageRole;
-  attachments?: Attachment[];
-}
-
-const EditMessagePanel: React.FC = memo(() => {
-  const { handleEditPanelSubmit, handleCancelGeneration } = useChatActions();
-  const { isLoading } = useChatInteractionStatus();
+export default memo(function EditMessagePanel() {
+  const { editPanelSubmit, cancelGeneration } = useChatStore(state => state.actions);
+  const { isLoading } = useChatStore();
   const { isEditPanelOpen, editingMessageDetail } = useUIStore();
   const { closeEditPanel } = useUIStore(state => state.actions);
 
@@ -44,15 +29,15 @@ const EditMessagePanel: React.FC = memo(() => {
 
   const handleAction = useCallback((action: EditMessagePanelAction) => {
     if (!editingMessageDetail) return;
-    handleEditPanelSubmit(action, editedContent, editingMessageDetail as any);
-  }, [editingMessageDetail, handleEditPanelSubmit, editedContent]);
+    editPanelSubmit(action, editedContent, editingMessageDetail);
+  }, [editingMessageDetail, editPanelSubmit, editedContent]);
   
   const handleCancelClick = useCallback(() => {
     if (editingMessageDetail && isLoading && editingMessageDetail.role === ChatMessageRole.MODEL) {
-      handleCancelGeneration();
+      cancelGeneration();
     }
     closeEditPanel();
-  }, [isLoading, editingMessageDetail, handleCancelGeneration, closeEditPanel]);
+  }, [isLoading, editingMessageDetail, cancelGeneration, closeEditPanel]);
 
   if (!isEditPanelOpen || !editingMessageDetail) return null;
   
@@ -101,5 +86,3 @@ const EditMessagePanel: React.FC = memo(() => {
     </div>
   );
 });
-
-export default EditMessagePanel;

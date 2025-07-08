@@ -9,7 +9,9 @@ import Mark from 'mark.js/dist/mark.es6.js';
 import { ChatMessage, ChatMessageRole, GroundingChunk, Attachment } from '../types.ts';
 import ResetAudioCacheButton from './ResetAudioCacheButton.tsx';
 import RefreshAttachmentButton from './RefreshAttachmentButton.tsx';
-import { useChatState, useChatActions, useChatInteractionStatus } from '../contexts/ChatContext.tsx';
+import { useSessionStore } from '../stores/sessionStore.ts';
+import { useChatStore } from '../stores/chatStore.ts';
+import { useAppConfigStore } from '../stores/appConfigStore.ts';
 import { useUIStore } from '../stores/uiStore.ts';
 import { useAudioContext } from '../contexts/AudioContext.tsx';
 import { MAX_WORDS_PER_TTS_SEGMENT, MESSAGE_CONTENT_SNIPPET_THRESHOLD } from '../constants.ts';
@@ -151,12 +153,13 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
   isThoughtsExpanded,
   onToggleExpansion,
 }) => {
-  const { currentChatSession, messageGenerationTimes } = useChatState();
-  const { isLoading } = useChatInteractionStatus();
+  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
+  const { messageGenerationTimes } = useAppConfigStore();
+  const { isLoading } = useChatStore();
   const {
-    handleActualCopyMessage, handleDeleteSingleMessageOnly, handleRegenerateAIMessage,
-    handleRegenerateResponseForUserMessage, handleReUploadAttachment, handleInsertEmptyMessageAfter
-  } = useChatActions();
+    copyMessage, deleteSingleMessageOnly, regenerateAIMessage,
+    regenerateResponseForUserMessage, reUploadAttachment, insertEmptyMessageAfter
+  } = useChatStore(state => state.actions);
   const uiActions = useUIStore(state => state.actions);
   const { isSelectionModeActive, selectedMessageIds } = useUIStore();
   const audio = useAudioContext();
@@ -351,7 +354,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
   };
 
   const handleCopyMessageClick = async () => {
-    await handleActualCopyMessage(message.content);
+    await copyMessage(message.content);
     setIsOptionsMenuOpen(false);
   };
 
@@ -407,7 +410,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
   const handleInsertEmptyBubbleClick = () => {
     if (!currentChatSession) return;
     const roleToInsert = message.role === ChatMessageRole.USER ? ChatMessageRole.MODEL : ChatMessageRole.USER;
-    handleInsertEmptyMessageAfter(currentChatSession.id, message.id, roleToInsert);
+    insertEmptyMessageAfter(currentChatSession.id, message.id, roleToInsert);
     setIsOptionsMenuOpen(false);
   };
 
@@ -666,7 +669,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                             {attachment.fileUri && (
                                 <RefreshAttachmentButton
                                     attachment={attachment}
-                                    onReUpload={() => handleReUploadAttachment(currentChatSession!.id, message.id, attachment.id)}
+                                    onReUpload={() => reUploadAttachment(currentChatSession!.id, message.id, attachment.id)}
                                     disabled={message.isStreaming || isAnyAudioOperationActiveForMessage || isSelectionModeActive}
                                 />
                             )}
@@ -810,7 +813,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                             )}
                             {!isError && isModel && !message.characterName && (
                                 <DropdownMenuItem
-                                    onClick={() => { handleRegenerateAIMessage(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
+                                    onClick={() => { regenerateAIMessage(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
                                     icon={ArrowPathIcon}
                                     label="Regenerate AI Message"
                                     disabled={isAnyAudioOperationActiveForMessage}
@@ -819,7 +822,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                             )}
                             {isUser && canRegenerateFollowingAI && !message.characterName && (
                                 <DropdownMenuItem
-                                    onClick={() => { handleRegenerateResponseForUserMessage(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
+                                    onClick={() => { regenerateResponseForUserMessage(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
                                     icon={ArrowPathIcon}
                                     label="Regenerate AI Message"
                                     disabled={isAnyAudioOperationActiveForMessage}
@@ -827,7 +830,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({
                                 />
                             )}
                              <DropdownMenuItem
-                                onClick={() => { handleDeleteSingleMessageOnly(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
+                                onClick={() => { deleteSingleMessageOnly(currentChatSession!.id, message.id); setIsOptionsMenuOpen(false); }}
                                 icon={XCircleIcon}
                                 label="Delete This Message"
                                 className="text-red-400"

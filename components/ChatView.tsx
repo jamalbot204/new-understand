@@ -1,10 +1,12 @@
 // src/components/ChatView.tsx
-import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, memo } from 'react';
-import { useChatState, useChatInteractionStatus, useChatActions } from '../contexts/ChatContext.tsx';
+import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, memo, useMemo } from 'react';
+import { useSessionStore } from '../stores/sessionStore.ts';
+import { useChatStore } from '../stores/chatStore.ts';
 import { useUIStore } from '../stores/uiStore.ts';
+import { useAppConfigStore } from '../stores/appConfigStore.ts';
 import { ChatMessageRole, AICharacter } from '../types.ts';
 import MessageItem from './MessageItem.tsx';
-import { LOAD_MORE_MESSAGES_COUNT } from '../constants.ts';
+import { LOAD_MORE_MESSAGES_COUNT, INITIAL_MESSAGES_COUNT } from '../constants.ts';
 import { Bars3Icon, FlowRightIcon, StopIcon, PaperClipIcon, XCircleIcon, DocumentIcon, PlayCircleIcon, UsersIcon, PlusIcon, ArrowsUpDownIcon, CheckIcon, InfoIcon, CloudArrowUpIcon, ServerIcon, SendIcon, ClipboardDocumentCheckIcon } from './Icons.tsx';
 import AutoSendControls from './AutoSendControls.tsx';
 import ManualSaveButton from './ManualSaveButton.tsx';
@@ -25,13 +27,25 @@ export interface ChatViewHandles {
 const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
     onEnterReadMode,
 }, ref) => {
-    const { currentChatSession, visibleMessagesForCurrentChat, logApiRequest, chatHistory } = useChatState();
-    const { isLoading, currentGenerationTimeDisplay, autoSendHook } = useChatInteractionStatus();
+    const { currentChatSession, chatHistory } = useSessionStore(state => ({
+        currentChatSession: state.chatHistory.find(s => s.id === state.currentChatId),
+        chatHistory: state.chatHistory
+    }));
+    const { isLoading, currentGenerationTimeDisplay, autoSend: autoSendHook } = useChatStore();
+    const { logApiRequest } = useChatStore(s => s.actions);
     const {
-        handleSendMessage, handleContinueFlow, handleCancelGeneration, handleManualSave,
-        handleLoadMoreDisplayMessages, handleLoadAllDisplayMessages,
-        handleReorderCharacters
-    } = useChatActions();
+        sendMessage, continueFlow, cancelGeneration, manualSave,
+        reorderCharacters,
+        startAutoSend, stopAutoSend, setAutoSendText, setAutoSendRepetitionsInput,
+    } = useChatStore(s => s.actions);
+    const { loadMoreDisplayMessages, loadAllDisplayMessages } = useAppConfigStore(s => s.actions);
+    const messagesToDisplay = useAppConfigStore(s => s.messagesToDisplayConfig[currentChatSession?.id ?? ''] ?? currentChatSession?.settings.maxInitialMessagesDisplayed ?? INITIAL_MESSAGES_COUNT);
+    
+    const visibleMessagesForCurrentChat = useMemo(() => {
+        if (!currentChatSession) return [];
+        return currentChatSession.messages.slice(-messagesToDisplay);
+    }, [currentChatSession, messagesToDisplay]);
+
 
     const ui = useUIStore();
     const uiActions = useUIStore(state => state.actions);
@@ -93,9 +107,9 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
 
     const handleLoadAll = useCallback(() => {
         if (!currentChatSession) return;
-        handleLoadAllDisplayMessages(currentChatSession.id, totalMessagesInSession);
+        loadAllDisplayMessages(currentChatSession.id, totalMessagesInSession);
         setShowLoadButtonsUI(false);
-    }, [currentChatSession, handleLoadAllDisplayMessages, totalMessagesInSession]);
+    }, [currentChatSession, loadAllDisplayMessages, totalMessagesInSession]);
 
     useImperativeHandle(ref, () => ({
         scrollToMessage: (messageId: string) => {
@@ -157,7 +171,7 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
 
         if (isCharacterMode && characterId) {
             if (autoSendHook.isPreparingAutoSend) {
-                autoSendHook.startAutoSend(autoSendHook.autoSendText, parseInt(autoSendHook.autoSendRepetitionsInput, 10) || 1, characterId);
+                startAutoSend(autoSendHook.text, parseInt(autoSendHook.repetitionsInput, 10) || 1, characterId);
                 setInputMessage('');
                 resetSelectedFiles();
                 return;
@@ -179,15 +193,15 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
             setIsInfoInputModeActive(false);
         }
 
-        await handleSendMessage(currentInputMessageValue, attachmentsToSend, undefined, characterId, temporaryContextFlag);
-    }, [inputMessage, getValidAttachmentsToSend, isLoading, currentChatSession, autoSendHook, isAnyFileStillProcessing, uiActions, isCharacterMode, isInfoInputModeActive, handleSendMessage, resetSelectedFiles]);
+        await sendMessage(currentInputMessageValue, attachmentsToSend, undefined, characterId, temporaryContextFlag);
+    }, [inputMessage, getValidAttachmentsToSend, isLoading, currentChatSession, autoSendHook, isAnyFileStillProcessing, uiActions, isCharacterMode, isInfoInputModeActive, sendMessage, resetSelectedFiles, startAutoSend]);
 
     const handleContinueFlowClick = useCallback(async () => {
         if (isLoading || !currentChatSession || currentChatSession.messages.length === 0 || isCharacterMode || autoSendHook.isAutoSendingActive) return;
         setInputMessage('');
         resetSelectedFiles();
-        await handleContinueFlow();
-    }, [isLoading, currentChatSession, isCharacterMode, autoSendHook.isAutoSendingActive, handleContinueFlow, resetSelectedFiles]);
+        await continueFlow();
+    }, [isLoading, currentChatSession, isCharacterMode, autoSendHook.isAutoSendingActive, continueFlow, resetSelectedFiles]);
 
     const handleKeyPress = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -217,9 +231,9 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
 
     const handleLoadMore = useCallback((count: number) => {
         if (!currentChatSession) return;
-        handleLoadMoreDisplayMessages(currentChatSession.id, count);
+        loadMoreDisplayMessages(currentChatSession.id, count);
         setShowLoadButtonsUI(false);
-    }, [currentChatSession, handleLoadMoreDisplayMessages]);
+    }, [currentChatSession, loadMoreDisplayMessages]);
 
     const toggleInfoInputMode = useCallback(() => {
         setIsInfoInputModeActive(prev => {
@@ -265,9 +279,9 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
         currentChars.splice(targetIndex, 0, removed);
         
         setCharactersState(currentChars);
-        await handleReorderCharacters(currentChars);
+        await reorderCharacters(currentChars);
         draggedCharRef.current = null;
-    }, [isReorderingActive, currentChatSession, characters, handleReorderCharacters]);
+    }, [isReorderingActive, currentChatSession, characters, reorderCharacters]);
 
 
     const handleDragEnd = useCallback((e: React.DragEvent<HTMLButtonElement>) => {
@@ -279,11 +293,11 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
     
     const handleMainCancelButtonClick = useCallback(async () => {
         if (autoSendHook.isAutoSendingActive) {
-            await autoSendHook.stopAutoSend();
+            await stopAutoSend();
         } else if (isLoading) {
-            handleCancelGeneration();
+            cancelGeneration();
         }
-    }, [autoSendHook, isLoading, handleCancelGeneration]);
+    }, [autoSendHook, isLoading, cancelGeneration, stopAutoSend]);
 
     const amountToLoad = Math.min(LOAD_MORE_MESSAGES_COUNT, totalMessagesInSession - visibleMessages.length);
     const hasValidInputForMainSend = inputMessage.trim() !== '' || getValidAttachmentsToSend().length > 0;
@@ -319,7 +333,7 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                     </h1>
                     <div className="flex items-center space-x-2">
                         {currentChatSession && <p className="text-xs text-[var(--aurora-text-secondary)] truncate" title={getModelDisplayName(currentChatSession.model)}>Model: {getModelDisplayName(currentChatSession.model)}</p>}
-                        {currentChatSession && <ManualSaveButton onManualSave={handleManualSave} disabled={!currentChatSession || isLoading} />}
+                        {currentChatSession && <ManualSaveButton onManualSave={manualSave} disabled={!currentChatSession || isLoading} />}
                         {currentChatSession && (
                             <button
                                 onClick={uiActions.toggleSelectionMode}
@@ -465,18 +479,18 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
                 {(currentChatSession?.settings?.showAutoSendControls) && (
                     <AutoSendControls
                         isAutoSendingActive={autoSendHook.isAutoSendingActive}
-                        autoSendText={autoSendHook.autoSendText}
-                        setAutoSendText={autoSendHook.setAutoSendText}
-                        autoSendRepetitionsInput={autoSendHook.autoSendRepetitionsInput}
-                        setAutoSendRepetitionsInput={autoSendHook.setAutoSendRepetitionsInput}
+                        autoSendText={autoSendHook.text}
+                        setAutoSendText={setAutoSendText}
+                        autoSendRepetitionsInput={autoSendHook.repetitionsInput}
+                        setAutoSendRepetitionsInput={setAutoSendRepetitionsInput}
                         autoSendRemaining={autoSendHook.autoSendRemaining}
                         onStartAutoSend={() => {
-                            if (!isCharacterMode && autoSendHook.canStartAutoSend(autoSendHook.autoSendText, autoSendHook.autoSendRepetitionsInput) && !autoSendHook.isAutoSendingActive && !isLoading) {
-                                autoSendHook.startAutoSend(autoSendHook.autoSendText, parseInt(autoSendHook.autoSendRepetitionsInput, 10) || 1);
+                            if (!isCharacterMode && !autoSendHook.isAutoSendingActive && !isLoading) {
+                                startAutoSend(autoSendHook.text, parseInt(autoSendHook.repetitionsInput, 10) || 1);
                             }
                         }}
-                        onStopAutoSend={autoSendHook.stopAutoSend}
-                        canStart={autoSendHook.canStartAutoSend(autoSendHook.autoSendText, autoSendHook.autoSendRepetitionsInput)}
+                        onStopAutoSend={stopAutoSend}
+                        canStart={!isLoading && !!currentChatSession && autoSendHook.text.trim() !== '' && (parseInt(autoSendHook.repetitionsInput, 10) || 0) > 0}
                         isChatViewLoading={isLoading}
                         currentChatSessionExists={!!currentChatSession}
                         isCharacterMode={isCharacterMode}

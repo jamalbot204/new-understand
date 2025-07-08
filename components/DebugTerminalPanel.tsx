@@ -1,6 +1,7 @@
 // src/components/DebugTerminalPanel.tsx
 import React, { useState, memo } from 'react';
-import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
+import { useSessionStore } from '../stores/sessionStore.ts';
+import { useChatStore } from '../stores/chatStore.ts';
 import { useUIStore } from '../stores/uiStore.ts';
 import { ApiRequestLog } from '../types.ts';
 import { CloseIcon, TrashIcon, BugAntIcon, ChevronDownIcon, ChevronRightIcon } from './Icons.tsx';
@@ -60,8 +61,8 @@ const LogEntryComponent: React.FC<LogEntryProps> = ({ log }) => {
 const LogEntry = memo(LogEntryComponent);
 
 const DebugTerminalPanel: React.FC = memo(() => {
-  const { currentChatSession } = useChatState();
-  const { handleClearApiLogs } = useChatActions();
+  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
+  const { clearApiLogs } = useChatStore(state => state.actions);
   const isDebugTerminalOpen = useUIStore(state => state.isDebugTerminalOpen);
   const { closeDebugTerminal } = useUIStore(state => state.actions);
 
@@ -79,7 +80,7 @@ const DebugTerminalPanel: React.FC = memo(() => {
           </div>
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => handleClearApiLogs(currentChatSession.id)}
+              onClick={() => clearApiLogs(currentChatSession.id)}
               title="Clear logs for this session"
               className="p-1.5 text-gray-400 bg-white/5 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow hover:text-red-400 hover:shadow-[0_0_10px_1px_rgba(239,68,68,0.7)]"
               disabled={logs.length === 0}

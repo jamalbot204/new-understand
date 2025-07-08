@@ -1,12 +1,12 @@
 // src/components/CharacterContextualInfoModal.tsx
 import React, { useState, useEffect, memo, useCallback } from 'react';
-import { useChatActions } from '../contexts/ChatContext.tsx';
+import { useChatStore } from '../stores/chatStore.ts';
 import { useUIStore } from '../stores/uiStore.ts';
 import { CloseIcon } from './Icons.tsx';
 import useAutoResizeTextarea from '../hooks/useAutoResizeTextarea.ts';
 
 const CharacterContextualInfoModal: React.FC = memo(() => {
-  const { handleSaveCharacterContextualInfo } = useChatActions();
+  const { saveCharacterContextualInfo } = useChatStore(state => state.actions);
   const { isContextualInfoModalOpen, editingCharacterForContextualInfo } = useUIStore();
   const { closeCharacterContextualInfoModal } = useUIStore(state => state.actions);
   
@@ -27,9 +27,9 @@ const CharacterContextualInfoModal: React.FC = memo(() => {
 
   const handleSave = useCallback(() => {
     if (!editingCharacterForContextualInfo) return;
-    handleSaveCharacterContextualInfo(editingCharacterForContextualInfo.id, infoText);
+    saveCharacterContextualInfo(editingCharacterForContextualInfo.id, infoText);
     closeCharacterContextualInfoModal();
-  }, [editingCharacterForContextualInfo, handleSaveCharacterContextualInfo, infoText, closeCharacterContextualInfoModal]);
+  }, [editingCharacterForContextualInfo, saveCharacterContextualInfo, infoText, closeCharacterContextualInfoModal]);
   
   const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInfoText(e.target.value);

@@ -1,18 +1,21 @@
 // src/components/Sidebar.tsx
 import React, { useRef, useEffect, memo, useCallback } from 'react';
-import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
+import { useSessionStore } from '../stores/sessionStore.ts';
+import { useChatStore } from '../stores/chatStore.ts';
 import { useUIStore } from '../stores/uiStore.ts';
 import { APP_TITLE } from '../constants.ts';
 import { PlusIcon, TrashIcon, CogIcon, ExportIcon, ImportIcon, UsersIcon, IconDirectionLtr, IconDirectionRtl, PencilIcon, CheckIcon, XCircleIcon, DocumentDuplicateIcon } from './Icons.tsx';
 
 const Sidebar: React.FC = memo(() => {
-  const { chatHistory, currentChatId, currentChatSession, editingTitleInfo } = useChatState();
+  const { chatHistory, currentChatId, editingTitleInfo } = useSessionStore();
+  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
   const {
-      handleNewChat, handleToggleCharacterMode, handleImportAll,
+      handleNewChat,
       handleSelectChat, handleStartEditChatTitle, handleSaveChatTitle,
       handleCancelEditChatTitle, handleEditTitleInputChange, handleDuplicateChat,
       handleDeleteChat,
-  } = useChatActions();
+  } = useSessionStore(state => state.actions);
+  const { toggleCharacterMode, importAll } = useChatStore(state => state.actions);
   const { layoutDirection } = useUIStore();
   const { handleToggleLayoutDirection, openExportConfigurationModal, openSettingsPanel } = useUIStore(state => state.actions);
   
@@ -57,7 +60,7 @@ const Sidebar: React.FC = memo(() => {
             New Chat
             </button>
             <button
-                onClick={handleToggleCharacterMode}
+                onClick={toggleCharacterMode}
                 disabled={!currentChatId}
                 title={currentChatSession?.isCharacterModeActive ? "Disable Character Mode" : "Enable Character Mode"}
                 className={`p-2.5 text-sm font-medium rounded-md transition-shadow focus:outline-none focus:ring-2 focus:ring-opacity-50
@@ -79,7 +82,7 @@ const Sidebar: React.FC = memo(() => {
                 Export
             </button>
             <button
-                onClick={handleImportAll}
+                onClick={importAll}
                 title="Import Chats"
                 className="w-full flex items-center justify-center px-3 py-2 text-xs font-medium text-[var(--aurora-text-secondary)] bg-white/5 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]"
             >
@@ -95,90 +98,47 @@ const Sidebar: React.FC = memo(() => {
           <p className="text-sm text-gray-400 italic">No chats yet.</p>
         )}
         {chatHistory.map(session => (
-          <div
-            key={session.id}
-            onClick={() => editingTitleInfo.id !== session.id && handleSelectChat(session.id)}
-            className={`flex items-center justify-between p-2.5 rounded-md group transition-all duration-200
-                        ${editingTitleInfo.id === session.id ? 'bg-white/20 ring-1 ring-[var(--aurora-accent-primary)]' : 
-                         currentChatId === session.id ? 'bg-white/10 text-[var(--aurora-text-primary)] shadow-[0_0_15px_-5px_var(--aurora-accent-primary)]' : 
-                         'text-[var(--aurora-text-secondary)] hover:bg-white/5 hover:text-[var(--aurora-text-primary)] cursor-pointer'}`}
+          <div key={session.id}
+            className={`group relative rounded-md transition-all ${currentChatId === session.id ? 'bg-white/10' : 'hover:bg-white/5'}`}
           >
-            <div className="flex items-center overflow-hidden flex-grow">
-                {session.isCharacterModeActive && <UsersIcon className="w-4 h-4 mr-2 rtl:ml-2 rtl:mr-0 text-purple-400 flex-shrink-0"/>}
-                {editingTitleInfo.id === session.id ? (
-                  <input
-                    ref={editInputRef}
-                    type="text"
-                    value={editingTitleInfo.value}
-                    onChange={(e) => handleEditTitleInputChange(e.target.value)}
-                    onKeyDown={handleInputKeyDown}
-                    onBlur={() => setTimeout(handleCancelEditChatTitle, 100)}
-                    className="text-sm bg-black/50 text-gray-100 rounded-sm px-1 py-0.5 w-full focus:outline-none focus:ring-1 focus:ring-[var(--aurora-accent-primary)]"
-                    aria-label="Edit chat title"
-                  />
-                ) : (
-                  <span className="truncate text-sm" title={session.title}>{session.title}</span>
-                )}
-            </div>
-            <div className="flex items-center space-x-0.5 ml-2 rtl:mr-2 rtl:ml-0 flex-shrink-0">
-              {editingTitleInfo.id === session.id ? (
-                <>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleSaveChatTitle(); }}
-                    className="p-1 text-green-400 transition-all hover:text-green-300 hover:drop-shadow-[0_0_4px_rgba(34,197,94,0.9)]"
-                    title="Save title"
-                    aria-label="Save chat title"
-                  >
-                    <CheckIcon className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleCancelEditChatTitle(); }}
-                    className="p-1 text-gray-400 transition-all hover:text-gray-200 hover:drop-shadow-[0_0_4px_rgba(255,255,255,0.5)]"
-                    title="Cancel edit"
-                    aria-label="Cancel editing chat title"
-                  >
-                    <XCircleIcon className="w-4 h-4" />
-                  </button>
-                </>
-              ) : (
-                <>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleStartEditChatTitle(session.id, session.title); }}
-                    className="p-1 text-gray-400 opacity-0 group-hover:opacity-100 transition-all hover:text-blue-400 hover:drop-shadow-[0_0_4px_rgba(90,98,245,0.9)]"
-                    title="Edit title"
-                    aria-label="Edit chat title"
-                  >
-                    <PencilIcon className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDuplicateChat(session.id); }}
-                    className="p-1 text-gray-400 opacity-0 group-hover:opacity-100 transition-all hover:text-green-400 hover:drop-shadow-[0_0_4px_rgba(34,197,94,0.9)]"
-                    title="Duplicate chat"
-                    aria-label="Duplicate chat session"
-                  >
-                    <DocumentDuplicateIcon className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDeleteChat(session.id); }}
-                    className="p-1 text-gray-500 opacity-0 group-hover:opacity-100 transition-all hover:text-red-400 hover:drop-shadow-[0_0_4px_rgba(239,68,68,0.9)]"
-                    title="Delete chat"
-                    aria-label="Delete chat"
-                  >
-                    <TrashIcon className="w-4 h-4" />
-                  </button>
-                </>
-              )}
-            </div>
+            {editingTitleInfo.id === session.id ? (
+              <div className="flex items-center p-2.5">
+                <input
+                  ref={editInputRef}
+                  type="text"
+                  value={editingTitleInfo.value}
+                  onChange={(e) => handleEditTitleInputChange(e.target.value)}
+                  onKeyDown={handleInputKeyDown}
+                  onBlur={handleSaveChatTitle}
+                  className="flex-grow bg-transparent focus:bg-black/20 text-sm p-1 -ml-1 rounded-md focus:outline-none focus:ring-1 focus:ring-[var(--aurora-accent-primary)]"
+                />
+                <button onClick={handleSaveChatTitle} className="p-1 text-green-400 hover:text-green-300"><CheckIcon className="w-4 h-4" /></button>
+                <button onClick={handleCancelEditChatTitle} className="p-1 text-red-400 hover:text-red-300"><XCircleIcon className="w-4 h-4" /></button>
+              </div>
+            ) : (
+              <button
+                onClick={() => handleSelectChat(session.id)}
+                className="w-full text-left p-2.5 text-sm truncate flex items-center"
+                title={session.title}
+              >
+                {session.isCharacterModeActive && <UsersIcon className="w-4 h-4 mr-2 rtl:ml-2 rtl:mr-0 flex-shrink-0 text-purple-400" />}
+                <span className="flex-grow truncate">{session.title}</span>
+                <div className="flex-shrink-0 flex items-center space-x-1 rtl:space-x-reverse ml-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={(e) => { e.stopPropagation(); handleStartEditChatTitle(session.id, session.title); }} className="p-1 hover:text-white" title="Rename"><PencilIcon className="w-4 h-4"/></button>
+                  <button onClick={(e) => { e.stopPropagation(); handleDuplicateChat(session.id); }} className="p-1 hover:text-white" title="Duplicate"><DocumentDuplicateIcon className="w-4 h-4"/></button>
+                  <button onClick={(e) => { e.stopPropagation(); handleDeleteChat(session.id); }} className="p-1 hover:text-red-400" title="Delete"><TrashIcon className="w-4 h-4"/></button>
+                </div>
+              </button>
+            )}
           </div>
         ))}
       </div>
-
       <div className="p-4 border-t border-[var(--aurora-border)]">
         <button
           onClick={openSettingsPanel}
-          className="w-full flex items-center justify-center px-4 py-2.5 text-sm font-medium text-[var(--aurora-text-secondary)] bg-white/5 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)] hover:text-[var(--aurora-text-primary)] focus:outline-none focus:ring-2 ring-[var(--aurora-accent-primary)]"
+          className="w-full flex items-center p-2.5 text-sm text-[var(--aurora-text-secondary)] rounded-md transition-shadow hover:bg-white/5 hover:text-white"
         >
-          <CogIcon className="w-5 h-5 mr-2 rtl:ml-2 rtl:mr-0" />
+          <CogIcon className="w-5 h-5 mr-3 rtl:ml-3 rtl:mr-0" />
           Settings
         </button>
       </div>

@@ -2,8 +2,7 @@
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
 import * as layoutService from '../services/layoutService.ts';
-import { EditMessagePanelDetails } from '../components/EditMessagePanel.tsx';
-import { AICharacter, ChatSession, AttachmentWithContext } from '../types.ts';
+import { AICharacter, ChatSession, AttachmentWithContext, EditMessagePanelDetails } from '../types.ts';
 
 export interface ToastInfo {
   message: string;

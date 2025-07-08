@@ -1,6 +1,7 @@
 // src/components/SettingsPanel.tsx
 import React, { useState, useEffect, useMemo, memo, useCallback } from 'react';
-import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
+import { useSessionStore } from '../stores/sessionStore.ts';
+import { useChatStore } from '../stores/chatStore.ts';
 import { useUIStore } from '../stores/uiStore.ts';
 import { GeminiSettings, SafetySetting } from '../types.ts';
 import { DEFAULT_SETTINGS, MODEL_DEFINITIONS, DEFAULT_MODEL_ID, INITIAL_MESSAGES_COUNT, MODELS_SUPPORTING_THINKING_BUDGET_UI, MODELS_SENDING_THINKING_CONFIG_API } from '../constants.ts';
@@ -25,8 +26,9 @@ const InstructionButton: React.FC<{
 ));
 
 const SettingsPanel: React.FC = memo(() => {
-    const { currentChatSession } = useChatState();
-    const { updateChatSession, handleClearChatCacheForCurrentSession, handleSetGithubRepo } = useChatActions();
+    const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
+    const { updateChatSession } = useSessionStore(state => state.actions);
+    const { clearChatCacheForCurrentSession, setGithubRepo } = useChatStore(state => state.actions);
     const uiState = useUIStore();
     const uiActions = useUIStore(state => state.actions);
 
@@ -150,8 +152,8 @@ const SettingsPanel: React.FC = memo(() => {
     }, [uiActions]);
 
     const handleRemoveGithubRepo = useCallback(() => {
-        handleSetGithubRepo(null);
-    }, [handleSetGithubRepo]);
+        setGithubRepo(null);
+    }, [setGithubRepo]);
 
     if (!uiState.isSettingsPanelOpen || !currentChatSession) return null;
 
@@ -318,7 +320,7 @@ const SettingsPanel: React.FC = memo(() => {
                         </div>
                         <div className="border-t border-[var(--aurora-border)] pt-4">
                             <h3 className="text-md font-medium text-gray-300 mb-2 flex items-center"><ArrowPathIcon className="w-5 h-5 mr-2 text-gray-400" />Cache Management</h3>
-                            <button onClick={handleClearChatCacheForCurrentSession} type="button" className="w-full px-4 py-2 text-sm font-medium text-white bg-orange-600/80 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(249,115,22,0.6)] flex items-center justify-center space-x-2" title={currentChatSession.isCharacterModeActive && currentChatSession.aiCharacters && currentChatSession.aiCharacters.length > 0 ? "Clears cache for all characters in this chat." : "Clears the model's cache for this chat."}>
+                            <button onClick={clearChatCacheForCurrentSession} type="button" className="w-full px-4 py-2 text-sm font-medium text-white bg-orange-600/80 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(249,115,22,0.6)] flex items-center justify-center space-x-2" title={currentChatSession.isCharacterModeActive && currentChatSession.aiCharacters && currentChatSession.aiCharacters.length > 0 ? "Clears cache for all characters in this chat." : "Clears the model's cache for this chat."}>
                                 <ArrowPathIcon className="w-4 h-4" /><span>{currentChatSession.isCharacterModeActive && currentChatSession.aiCharacters && currentChatSession.aiCharacters.length > 0 ? 'Clear All Characters Cache' : 'Clear Model Cache'}</span>
                             </button>
                         </div>

@@ -1,10 +1,6 @@
-
-
 // Fix: Removed incorrect import of 'ChatSession as GeminiChatSessionSDK'
 import React from 'react';
 import { Content, Part as GeminiPart, SafetySetting as GeminiSafetySettingSDK, Tool } from "@google/genai";
-import { EditMessagePanelAction, EditMessagePanelDetails } from './components/EditMessagePanel.tsx';
-
 
 export enum ChatMessageRole {
   USER = 'user',
@@ -241,6 +237,20 @@ export interface AudioPlayerState {
   duration?: number;    
   currentPlayingText?: string | null; 
   playbackRate: number; 
+}
+
+export enum EditMessagePanelAction {
+  SAVE_LOCALLY,
+  CONTINUE_PREFIX,
+  SAVE_AND_SUBMIT,
+}
+
+export interface EditMessagePanelDetails {
+  sessionId: string;
+  messageId: string;
+  originalContent: string;
+  role: ChatMessageRole;
+  attachments?: Attachment[];
 }
 
 export interface UseGeminiReturn {

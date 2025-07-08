@@ -1,7 +1,9 @@
 // src/components/ExportConfigurationModal.tsx
 import React, { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { ExportConfiguration } from '../types.ts';
-import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
+import { useSessionStore } from '../stores/sessionStore.ts';
+import { useAppConfigStore } from '../stores/appConfigStore.ts';
+import { useChatStore } from '../stores/chatStore.ts';
 import { useUIStore } from '../stores/uiStore.ts';
 import { DEFAULT_EXPORT_CONFIGURATION } from '../constants.ts';
 import { CloseIcon, CheckIcon, ArrowPathIcon, UsersIcon, DocumentDuplicateIcon, KeyIcon } from './Icons.tsx';
@@ -46,8 +48,10 @@ const renderCategoryHeader = (title: string, icon?: React.ReactNode) => (
 );
 
 const ExportConfigurationModal: React.FC = memo(() => {
-  const { chatHistory, currentExportConfig } = useChatState();
-  const { setCurrentExportConfig, handleExportChats } = useChatActions();
+  const { chatHistory } = useSessionStore();
+  const { currentExportConfig } = useAppConfigStore();
+  const { setCurrentExportConfig } = useAppConfigStore(state => state.actions);
+  const { exportChats } = useChatStore(state => state.actions);
   const isExportConfigModalOpen = useUIStore(state => state.isExportConfigModalOpen);
   const uiActions = useUIStore(state => state.actions);
 
@@ -98,9 +102,9 @@ const ExportConfigurationModal: React.FC = memo(() => {
       alert("Please select at least one chat to export.");
       return;
     }
-    handleExportChats(selectedChatIds, localConfig);
+    exportChats(selectedChatIds, localConfig);
     uiActions.closeExportConfigurationModal();
-  }, [selectedChatIds, localConfig, handleExportChats, uiActions]);
+  }, [selectedChatIds, localConfig, exportChats, uiActions]);
 
   const handleResetConfigDefaults = useCallback(() => {
     setLocalConfig(DEFAULT_EXPORT_CONFIGURATION);

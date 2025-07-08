@@ -1,13 +1,14 @@
 // src/components/CharacterManagementModal.tsx
 import React, { useState, useEffect, memo, useCallback } from 'react';
-import { useChatState, useChatActions } from '../contexts/ChatContext.tsx';
+import { useSessionStore } from '../stores/sessionStore.ts';
+import { useChatStore } from '../stores/chatStore.ts';
 import { useUIStore } from '../stores/uiStore.ts';
 import { AICharacter } from '../types.ts';
 import { CloseIcon, PencilIcon, TrashIcon, InfoIcon } from './Icons.tsx';
 
 const CharacterManagementModal: React.FC = memo(() => {
-  const { currentChatSession } = useChatState();
-  const { handleAddCharacter, handleEditCharacter, handleDeleteCharacter } = useChatActions();
+  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
+  const { addCharacter, editCharacter, deleteCharacter } = useChatStore(state => state.actions);
   const { isCharacterManagementModalOpen } = useUIStore();
   const { closeCharacterManagementModal, openCharacterContextualInfoModal } = useUIStore(state => state.actions);
 
@@ -27,14 +28,14 @@ const CharacterManagementModal: React.FC = memo(() => {
 
   const handleSave = useCallback(() => {
     if (editingCharacter) {
-      handleEditCharacter(editingCharacter.id, newCharName, newCharInstruction);
+      editCharacter(editingCharacter.id, newCharName, newCharInstruction);
     } else {
-      handleAddCharacter(newCharName, newCharInstruction);
+      addCharacter(newCharName, newCharInstruction);
     }
     setNewCharName('');
     setNewCharInstruction('');
     setEditingCharacter(null);
-  }, [editingCharacter, newCharName, newCharInstruction, handleEditCharacter, handleAddCharacter]);
+  }, [editingCharacter, newCharName, newCharInstruction, editCharacter, addCharacter]);
   
   const startEdit = useCallback((char: AICharacter) => {
     setEditingCharacter(char);
@@ -63,7 +64,7 @@ const CharacterManagementModal: React.FC = memo(() => {
                     <div className="flex space-x-1.5">
                         <button onClick={() => openCharacterContextualInfoModal(char)} className="p-1.5 text-sky-400 transition-all hover:text-sky-300 hover:drop-shadow-[0_0_4px_rgba(56,189,248,0.9)]" title="Edit Contextual Info"><InfoIcon className="w-4 h-4"/></button>
                         <button onClick={() => startEdit(char)} className="p-1.5 text-blue-400 transition-all hover:text-blue-300 hover:drop-shadow-[0_0_4px_rgba(90,98,245,0.9)]" title="Edit Character"><PencilIcon className="w-4 h-4"/></button>
-                        <button onClick={() => handleDeleteCharacter(char.id)} className="p-1.5 text-red-400 transition-all hover:text-red-300 hover:drop-shadow-[0_0_4px_rgba(239,68,68,0.9)]" title="Delete Character"><TrashIcon className="w-4 h-4"/></button>
+                        <button onClick={() => deleteCharacter(char.id)} className="p-1.5 text-red-400 transition-all hover:text-red-300 hover:drop-shadow-[0_0_4px_rgba(239,68,68,0.9)]" title="Delete Character"><TrashIcon className="w-4 h-4"/></button>
                     </div>
                 </div>
             ))}
