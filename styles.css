@@ -164,3 +164,7 @@ input[type=range]:active::-webkit-slider-thumb {
   0%, 100% { opacity: 1; transform: scale(1); }
   50% { opacity: 0.4; transform: scale(0.9); }
 }
+/* Fix for message options menu overlap in virtualized list */
+.virtual-item-container:has(.message-item-root.menu-open) {
+    z-index: 20 !important; /* Elevate the entire container when its child menu is open */
+}

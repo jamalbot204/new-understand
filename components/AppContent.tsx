@@ -1,12 +1,17 @@
-// src/components/AppContent.tsx
-import React, { useRef, useCallback, useState, memo } from 'react';
-import { useSessionStore } from '../stores/sessionStore.ts';
-import { useChatStore } from '../stores/chatStore.ts';
-import { useUIStore } from '../stores/uiStore.ts';
-import { useAudioContext } from '../contexts/AudioContext.tsx';
-import { useApiKeyStore } from '../stores/apiKeyStore.ts';
 
-// Regular imports instead of lazy loading
+import React, { useRef, useCallback, useState, memo, useEffect } from 'react';
+import { useAudioStore } from '../store/useAudioStore.ts';
+import { useApiKeyStore } from '../store/useApiKeyStore.ts';
+import { useGlobalUiStore } from '../store/useGlobalUiStore.ts';
+import { useToastStore } from '../store/useToastStore.ts';
+import { useSelectionStore } from '../store/useSelectionStore.ts';
+import { useModalStore } from '../store/useModalStore.ts';
+import { useChatListStore } from '../store/useChatListStore.ts';
+import { useActiveChatStore } from '../store/useActiveChatStore.ts';
+import { useGithubStore } from '../store/useGithubStore.ts'; // Import the new store
+import { useInteractionStore } from '../store/useInteractionStore.ts';
+
+// Direct imports
 import Sidebar from './Sidebar.tsx';
 import ChatView from './ChatView.tsx';
 import ReadModeView from './ReadModeView.tsx';
@@ -25,17 +30,19 @@ import ChatAttachmentsModal from './ChatAttachmentsModal.tsx';
 import MultiSelectActionBar from './MultiSelectActionBar.tsx';
 import ApiKeyModal from './ApiKeyModal.tsx';
 import GitHubImportModal from './GitHubImportModal.tsx';
+import InjectedMessageEditModal from './InjectedMessageEditModal.tsx';
 
 const AppContent: React.FC = memo(() => {
-  const { isLoadingData, currentChatSession } = useSessionStore(state => ({
-    isLoadingData: state.isLoadingData,
-    currentChatSession: state.chatHistory.find(s => s.id === state.currentChatId)
-  }));
-  const { deleteMessageAndSubsequent, setGithubRepo } = useChatStore(s => s.actions);
-  const ui = useUIStore();
-  const uiActions = useUIStore(state => state.actions);
-  const audio = useAudioContext();
-  const { deleteApiKey } = useApiKeyStore(state => state.actions);
+  const { currentChatSession } = useActiveChatStore();
+  const isLoadingData = useChatListStore(state => state.isLoadingData);
+  const { deleteMessageAndSubsequent, resetAudioCache } = useInteractionStore();
+  const modalStore = useModalStore();
+  const { audioPlayerState, handleClosePlayerViewOnly, seekRelative, seekToAbsolute, togglePlayPause, increaseSpeed, decreaseSpeed } = useAudioStore();
+  const deleteApiKey = useApiKeyStore(state => state.deleteApiKey);
+  const { isSidebarOpen, closeSidebar } = useGlobalUiStore();
+  const showToast = useToastStore(state => state.showToast);
+  const { isSelectionModeActive } = useSelectionStore();
+  const { setGithubRepo } = useGithubStore(); // Get action from the new store
   const chatViewRef = useRef<any>(null);
 
   const [isReadModeOpen, setIsReadModeOpen] = useState(false);
@@ -52,47 +59,72 @@ const AppContent: React.FC = memo(() => {
   }, []);
 
   const handleGoToMessage = useCallback(() => {
-    if (audio.audioPlayerState.currentMessageId && chatViewRef.current) {
-      const baseMessageId = audio.audioPlayerState.currentMessageId.split('_part_')[0];
+    if (audioPlayerState.currentMessageId && chatViewRef.current) {
+      const baseMessageId = audioPlayerState.currentMessageId.split('_part_')[0];
       chatViewRef.current.scrollToMessage(baseMessageId);
     }
-  }, [audio.audioPlayerState.currentMessageId]);
+  }, [audioPlayerState.currentMessageId]);
 
   const getFullTextForAudioBar = useCallback(() => {
-    if (!audio.audioPlayerState.currentMessageId || !currentChatSession) return audio.audioPlayerState.currentPlayingText || "Playing audio...";
-    const baseId = audio.audioPlayerState.currentMessageId.split('_part_')[0];
+    if (!audioPlayerState.currentMessageId || !currentChatSession) return audioPlayerState.currentPlayingText || "Playing audio...";
+    const baseId = audioPlayerState.currentMessageId.split('_part_')[0];
     const message = currentChatSession.messages.find(m => m.id === baseId);
-    return message ? message.content : (audio.audioPlayerState.currentPlayingText || "Playing audio...");
-  }, [audio.audioPlayerState, currentChatSession]);
+    return message ? message.content : (audioPlayerState.currentPlayingText || "Playing audio...");
+  }, [audioPlayerState, currentChatSession]);
 
   const handleGoToAttachmentInChat = useCallback((messageId: string) => {
-    uiActions.closeChatAttachmentsModal();
+    modalStore.closeChatAttachmentsModal();
     if (chatViewRef.current) {
       chatViewRef.current.scrollToMessage(messageId);
     }
-  }, [uiActions]);
+  }, [modalStore]);
+
+  // Keyboard shortcut for audio play/pause with spacebar
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      // Guard: Only act if spacebar is pressed and an audio is primed in the player.
+      if (event.code !== 'Space' || !audioPlayerState.currentMessageId) {
+        return;
+      }
+      
+      const activeElement = document.activeElement;
+      const isTyping = activeElement instanceof HTMLElement && (
+                       activeElement.tagName === 'INPUT' || 
+                       activeElement.tagName === 'TEXTAREA' || 
+                       activeElement.isContentEditable);
+
+      // Guard: Don't interfere if the user is typing.
+      if (isTyping) {
+        return;
+      }
+
+      // We have a green light, prevent default action and toggle play/pause.
+      event.preventDefault();
+      togglePlayPause();
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+
+    // Cleanup listener on component unmount
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [audioPlayerState.currentMessageId, togglePlayPause]);
 
   const handleConfirmDeletion = useCallback(() => {
-    if (ui.deleteTarget) {
-      if (ui.deleteTarget.messageId === 'api-key') {
-        deleteApiKey(ui.deleteTarget.sessionId);
-        uiActions.showToast("API Key deleted.", "success");
+    if (modalStore.deleteTarget) {
+      if (modalStore.deleteTarget.messageId === 'api-key') {
+        deleteApiKey(modalStore.deleteTarget.sessionId);
+        showToast("API Key deleted.", "success");
       } else {
-        deleteMessageAndSubsequent(ui.deleteTarget.sessionId, ui.deleteTarget.messageId);
-        uiActions.showToast("Message and history deleted.", "success");
+        deleteMessageAndSubsequent(modalStore.deleteTarget.messageId);
+        showToast("Message and history deleted.", "success");
       }
     }
-    uiActions.cancelDeleteConfirmation();
-  }, [ui.deleteTarget, uiActions, deleteApiKey, deleteMessageAndSubsequent]);
+    modalStore.cancelDeleteConfirmation();
+  }, [modalStore, deleteApiKey, deleteMessageAndSubsequent, showToast]);
 
-  const handleConfirmAudioReset = useCallback(() => {
-    if (ui.resetAudioTarget) {
-      audio.handleResetAudioCache(ui.resetAudioTarget.sessionId, ui.resetAudioTarget.messageId);
-    }
-    uiActions.cancelResetAudioCacheConfirmation();
-  }, [ui.resetAudioTarget, uiActions, audio]);
-
-  const isAudioBarVisible = !!(audio.audioPlayerState.currentMessageId || audio.audioPlayerState.isLoading || audio.audioPlayerState.isPlaying || audio.audioPlayerState.currentPlayingText) && !isReadModeOpen;
+  const isAudioBarVisible = !!(audioPlayerState.currentMessageId || audioPlayerState.isLoading || audioPlayerState.isPlaying || audioPlayerState.currentPlayingText) && !isReadModeOpen;
   
   if (isLoadingData) {
     return <div className="flex justify-center items-center h-screen bg-transparent text-white text-lg">Loading Chat Sessions...</div>;
@@ -100,92 +132,99 @@ const AppContent: React.FC = memo(() => {
 
   return (
     <div className="flex h-screen antialiased text-[var(--aurora-text-primary)] bg-transparent overflow-hidden">
-      <div className={`fixed inset-y-0 left-0 z-30 transform transition-transform duration-300 ease-in-out ${ui.isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} w-72`}>
-        <Sidebar />
-      </div>
-
-      {ui.isSidebarOpen && <div className="fixed inset-0 z-20 bg-black bg-opacity-50" onClick={uiActions.closeSidebar} aria-hidden="true" />}
       
-      <main className={`relative z-10 flex-1 flex flex-col overflow-y-auto transition-all duration-300 ease-in-out ${ui.isSidebarOpen ? 'md:ml-72' : 'ml-0'} ${isAudioBarVisible ? 'pt-[76px]' : ''}`}>
-        <ChatView ref={chatViewRef} onEnterReadMode={handleEnterReadMode} />
-      </main>
-      
-      <div className='absolute'>
-        {isAudioBarVisible && (
-            <div className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ease-in-out ${ui.isSidebarOpen ? 'md:left-72' : 'left-0'}`}>
-              <AdvancedAudioPlayer
-                audioPlayerState={audio.audioPlayerState}
-                onCloseView={audio.handleClosePlayerViewOnly} 
-                onSeekRelative={audio.seekRelative}
-                onSeekToAbsolute={audio.seekToAbsolute}
-                onTogglePlayPause={audio.togglePlayPause}
-                currentMessageText={getFullTextForAudioBar()}
-                onGoToMessage={handleGoToMessage}
-                onIncreaseSpeed={audio.increaseSpeed} 
-                onDecreaseSpeed={audio.decreaseSpeed} 
-              />
-            </div>
-        )}
+        <div className={`fixed inset-y-0 left-0 z-30 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} w-72`}>
+          <Sidebar />
+        </div>
 
-        <ReadModeView 
-          isOpen={isReadModeOpen} 
-          content={readModeContent} 
-          onClose={handleCloseReadMode}
-          onGoToMessage={handleGoToMessage} 
-        />
+        {isSidebarOpen && <div className="fixed inset-0 z-20 bg-black bg-opacity-50" onClick={closeSidebar} aria-hidden="true" />}
         
-        <SettingsPanel />
-        <ApiKeyModal />
-        <GitHubImportModal
-            isOpen={ui.isGitHubImportModalOpen}
-            onClose={uiActions.closeGitHubImportModal}
-            onImport={setGithubRepo}
-        />
-        <ExportConfigurationModal />
-        <TtsSettingsModal />
-        <EditMessagePanel />
-        <CharacterManagementModal />
-        <CharacterContextualInfoModal />
-        <DebugTerminalPanel />
-        {ui.isSelectionModeActive && <MultiSelectActionBar />}
-        <ChatAttachmentsModal
-            isOpen={ui.isChatAttachmentsModalOpen}
-            attachments={ui.attachmentsForModal}
-            chatTitle={currentChatSession?.title || "Current Chat"}
-            onClose={uiActions.closeChatAttachmentsModal}
-            onGoToMessage={handleGoToAttachmentInChat}
-        />
+        <main className={`relative z-10 flex-1 flex flex-col overflow-y-auto transition-all duration-300 ease-in-out ${isSidebarOpen ? 'md:ml-72' : 'ml-0'} ${isAudioBarVisible ? 'pt-[76px]' : ''}`}>
+          <ChatView ref={chatViewRef} onEnterReadMode={handleEnterReadMode} />
+        </main>
+        
+        <div className='absolute'>
+          {isAudioBarVisible && (
+              <div className={`fixed top-0 left-0 right-0 z-30 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'md:left-72' : 'left-0'}`}>
+                <AdvancedAudioPlayer
+                  audioPlayerState={audioPlayerState}
+                  onCloseView={handleClosePlayerViewOnly} 
+                  onSeekRelative={seekRelative}
+                  onSeekToAbsolute={seekToAbsolute}
+                  onTogglePlayPause={togglePlayPause}
+                  currentMessageText={getFullTextForAudioBar()}
+                  onGoToMessage={handleGoToMessage}
+                  onIncreaseSpeed={increaseSpeed} 
+                  onDecreaseSpeed={decreaseSpeed} 
+                />
+              </div>
+          )}
 
-        {ui.isFilenameInputModalOpen && ui.filenameInputModalProps && (
-          <FilenameInputModal
-            isOpen={ui.isFilenameInputModalOpen}
-            defaultFilename={ui.filenameInputModalProps.defaultFilename}
-            promptMessage={ui.filenameInputModalProps.promptMessage}
-            onSubmit={uiActions.submitFilenameInputModal}
-            onClose={uiActions.closeFilenameInputModal}
+          <ReadModeView 
+            isOpen={isReadModeOpen} 
+            content={readModeContent} 
+            onClose={handleCloseReadMode}
+            onGoToMessage={handleGoToMessage} 
           />
-        )}
+          
+          <SettingsPanel />
+          <ApiKeyModal isOpen={modalStore.isApiKeyModalOpen} onClose={modalStore.closeApiKeyModal} />
+          <GitHubImportModal
+              isOpen={modalStore.isGitHubImportModalOpen}
+              onClose={modalStore.closeGitHubImportModal}
+              onImport={setGithubRepo}
+          />
+          <ExportConfigurationModal />
+          <TtsSettingsModal />
+          <EditMessagePanel />
+          <CharacterManagementModal />
+          <CharacterContextualInfoModal />
+          <DebugTerminalPanel />
+          {isSelectionModeActive && <MultiSelectActionBar />}
+          <ChatAttachmentsModal
+              isOpen={modalStore.isChatAttachmentsModalOpen}
+              attachments={modalStore.attachmentsForModal}
+              chatTitle={currentChatSession?.title || "Current Chat"}
+              onClose={modalStore.closeChatAttachmentsModal}
+              onGoToMessage={handleGoToAttachmentInChat}
+          />
 
-        <ConfirmationModal
-          isOpen={ui.isDeleteConfirmationOpen}
-          title="Confirm Deletion"
-          message={ui.deleteTarget?.messageId === 'api-key' ? 'Are you sure you want to permanently delete this API key?' : <>Are you sure you want to delete this message and all <strong className="text-red-400">subsequent messages</strong> in this chat? <br/>This action cannot be undone.</>}
-          confirmText="Yes, Delete" cancelText="No, Cancel"
-          onConfirm={handleConfirmDeletion}
-          onCancel={uiActions.cancelDeleteConfirmation}
-          isDestructive={true}
-        />
-        <ConfirmationModal
-          isOpen={ui.isResetAudioConfirmationOpen}
-          title="Confirm Audio Reset"
-          message="Are you sure you want to reset the audio cache for this message? This action cannot be undone."
-          confirmText="Yes, Reset Audio" cancelText="No, Cancel"
-          onConfirm={handleConfirmAudioReset}
-          onCancel={uiActions.cancelResetAudioCacheConfirmation}
-          isDestructive={true}
-        />
-        {ui.toastInfo && <ToastNotification message={ui.toastInfo.message} type={ui.toastInfo.type} onClose={() => uiActions.setToastInfo(null)} duration={ui.toastInfo.duration} />}
-      </div>
+          {modalStore.isFilenameInputModalOpen && modalStore.filenameInputModalProps && (
+            <FilenameInputModal
+              isOpen={modalStore.isFilenameInputModalOpen}
+              defaultFilename={modalStore.filenameInputModalProps.defaultFilename}
+              promptMessage={modalStore.filenameInputModalProps.promptMessage}
+              onSubmit={modalStore.submitFilenameInputModal}
+              onClose={modalStore.closeFilenameInputModal}
+            />
+          )}
+
+          <ConfirmationModal
+            isOpen={modalStore.isDeleteConfirmationOpen}
+            title="Confirm Deletion"
+            message={modalStore.deleteTarget?.messageId === 'api-key' ? 'Are you sure you want to permanently delete this API key?' : <>Are you sure you want to delete this message and all <strong className="text-red-400">subsequent messages</strong> in this chat? <br/>This action cannot be undone.</>}
+            confirmText="Yes, Delete" cancelText="No, Cancel"
+            onConfirm={handleConfirmDeletion}
+            onCancel={modalStore.cancelDeleteConfirmation}
+            isDestructive={true}
+          />
+          <ConfirmationModal
+            isOpen={modalStore.isResetAudioConfirmationOpen}
+            title="Confirm Audio Reset"
+            message="Are you sure you want to reset the audio cache for this message? This action cannot be undone."
+            confirmText="Yes, Reset Audio" cancelText="No, Cancel"
+            onConfirm={() => { 
+              if(modalStore.resetAudioTarget) {
+                resetAudioCache(modalStore.resetAudioTarget.messageId);
+              }
+              modalStore.cancelResetAudioCacheConfirmation(); 
+            }} 
+            onCancel={modalStore.cancelResetAudioCacheConfirmation}
+            isDestructive={true}
+          />
+          <InjectedMessageEditModal />
+          <ToastNotification />
+        </div>
     </div>
   );
 });

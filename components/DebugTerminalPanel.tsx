@@ -1,16 +1,19 @@
-// src/components/DebugTerminalPanel.tsx
+
+
+
 import React, { useState, memo } from 'react';
-import { useSessionStore } from '../stores/sessionStore.ts';
-import { useChatStore } from '../stores/chatStore.ts';
-import { useUIStore } from '../stores/uiStore.ts';
+import { useModalStore } from '../store/useModalStore.ts';
+import { useActiveChatStore } from '../store/useActiveChatStore.ts';
 import { ApiRequestLog } from '../types.ts';
 import { CloseIcon, TrashIcon, BugAntIcon, ChevronDownIcon, ChevronRightIcon } from './Icons.tsx';
 import { getModelDisplayName } from '../services/utils.ts';
+import { useInteractionStore } from '../store/useInteractionStore.ts';
 
 interface LogEntryProps {
   log: ApiRequestLog;
 }
 
+// Moved LogEntryComponent to the top level to prevent re-creation on every render
 const LogEntryComponent: React.FC<LogEntryProps> = ({ log }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const modelName = getModelDisplayName(typeof log.payload.model === 'string' ? log.payload.model : undefined);
@@ -58,13 +61,13 @@ const LogEntryComponent: React.FC<LogEntryProps> = ({ log }) => {
   );
 };
 
+// Memoize the top-level LogEntryComponent
 const LogEntry = memo(LogEntryComponent);
 
 const DebugTerminalPanel: React.FC = memo(() => {
-  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
-  const { clearApiLogs } = useChatStore(state => state.actions);
-  const isDebugTerminalOpen = useUIStore(state => state.isDebugTerminalOpen);
-  const { closeDebugTerminal } = useUIStore(state => state.actions);
+  const { currentChatSession } = useActiveChatStore();
+  const { clearApiLogs } = useInteractionStore();
+  const { isDebugTerminalOpen, closeDebugTerminal } = useModalStore();
 
   if (!isDebugTerminalOpen || !currentChatSession) return null;
 
@@ -80,7 +83,7 @@ const DebugTerminalPanel: React.FC = memo(() => {
           </div>
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => clearApiLogs(currentChatSession.id)}
+              onClick={() => clearApiLogs()}
               title="Clear logs for this session"
               className="p-1.5 text-gray-400 bg-white/5 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow hover:text-red-400 hover:shadow-[0_0_10px_1px_rgba(239,68,68,0.7)]"
               disabled={logs.length === 0}

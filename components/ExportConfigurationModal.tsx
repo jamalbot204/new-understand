@@ -1,12 +1,16 @@
-// src/components/ExportConfigurationModal.tsx
+
+
+
+
 import React, { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { ExportConfiguration } from '../types.ts';
-import { useSessionStore } from '../stores/sessionStore.ts';
-import { useAppConfigStore } from '../stores/appConfigStore.ts';
-import { useChatStore } from '../stores/chatStore.ts';
-import { useUIStore } from '../stores/uiStore.ts';
+import { useChatListStore } from '../store/useChatListStore.ts';
+import { useModalStore } from '../store/useModalStore.ts';
 import { DEFAULT_EXPORT_CONFIGURATION } from '../constants.ts';
 import { CloseIcon, CheckIcon, ArrowPathIcon, UsersIcon, DocumentDuplicateIcon, KeyIcon } from './Icons.tsx';
+import { useDataStore } from '../store/useDataStore.ts';
+import { useToastStore } from '../store/useToastStore.ts';
+
 
 const ToggleOption: React.FC<{
   id: keyof ExportConfiguration;
@@ -47,13 +51,12 @@ const renderCategoryHeader = (title: string, icon?: React.ReactNode) => (
   </h4>
 );
 
+// No props are needed anymore!
 const ExportConfigurationModal: React.FC = memo(() => {
-  const { chatHistory } = useSessionStore();
-  const { currentExportConfig } = useAppConfigStore();
-  const { setCurrentExportConfig } = useAppConfigStore(state => state.actions);
-  const { exportChats } = useChatStore(state => state.actions);
-  const isExportConfigModalOpen = useUIStore(state => state.isExportConfigModalOpen);
-  const uiActions = useUIStore(state => state.actions);
+  const { chatHistory } = useChatListStore();
+  const { currentExportConfig, setCurrentExportConfig, handleExportChats } = useDataStore();
+  const { isExportConfigModalOpen, closeExportConfigurationModal } = useModalStore();
+  const showToast = useToastStore(state => state.showToast);
 
   const [localConfig, setLocalConfig] = useState<ExportConfiguration>(currentExportConfig);
   const [selectedChatIds, setSelectedChatIds] = useState<string[]>([]);
@@ -94,17 +97,17 @@ const ExportConfigurationModal: React.FC = memo(() => {
 
   const handleSaveCurrentConfig = useCallback(() => {
     setCurrentExportConfig(localConfig);
-    uiActions.showToast("Export preferences saved!", "success");
-  }, [localConfig, setCurrentExportConfig, uiActions]);
+    showToast("Export preferences saved!", "success");
+  }, [localConfig, setCurrentExportConfig, showToast]);
   
   const handleInitiateExport = useCallback(() => {
     if (selectedChatIds.length === 0) {
       alert("Please select at least one chat to export.");
       return;
     }
-    exportChats(selectedChatIds, localConfig);
-    uiActions.closeExportConfigurationModal();
-  }, [selectedChatIds, localConfig, exportChats, uiActions]);
+    handleExportChats(selectedChatIds, localConfig);
+    closeExportConfigurationModal();
+  }, [selectedChatIds, localConfig, handleExportChats, closeExportConfigurationModal]);
 
   const handleResetConfigDefaults = useCallback(() => {
     setLocalConfig(DEFAULT_EXPORT_CONFIGURATION);
@@ -120,13 +123,13 @@ const ExportConfigurationModal: React.FC = memo(() => {
         role="dialog"
         aria-modal="true"
         aria-labelledby="export-config-modal-title"
-        onClick={uiActions.closeExportConfigurationModal}
+        onClick={closeExportConfigurationModal}
     >
       <div className="aurora-panel p-5 sm:p-6 rounded-lg shadow-2xl w-full sm:max-w-3xl max-h-[95vh] flex flex-col text-gray-200" onClick={(e) => e.stopPropagation()}>
         <div className="flex justify-between items-center mb-4 flex-shrink-0">
           <h2 id="export-config-modal-title" className="text-xl font-semibold text-gray-100">Export Chats & Preferences</h2>
           <button
-            onClick={uiActions.closeExportConfigurationModal}
+            onClick={closeExportConfigurationModal}
             className="text-gray-400 p-1 rounded-full transition-shadow hover:text-gray-100 hover:shadow-[0_0_10px_1px_rgba(255,255,255,0.2)]"
             aria-label="Close export configuration"
           >
@@ -189,7 +192,7 @@ const ExportConfigurationModal: React.FC = memo(() => {
             <ToggleOption id="includeGroundingMetadata" label="Grounding Metadata (Search Sources)" checked={localConfig.includeGroundingMetadata} onChange={handleToggleChange} indented disabled={isCoreDataDisabled} />
 
             {renderCategoryHeader("Chat-Specific Settings")}
-            <ToggleOption id="includeChatSpecificSettings" label="Chat-Specific Settings" description="Model, temperature, safety settings, etc., for each selected chat session." checked={localConfig.includeChatSpecificSettings} onChange={handleToggleChange} disabled={isCoreDataDisabled} />
+            <ToggleOption id="includeChatSpecificSettings" label="Chat-Specific Settings" description="Model, temperature, safety settings, TTS settings, etc., for each selected chat session." checked={localConfig.includeChatSpecificSettings} onChange={handleToggleChange} disabled={isCoreDataDisabled} />
 
             {renderCategoryHeader("AI Character Definitions")}
             <ToggleOption id="includeAiCharacterDefinitions" label="AI Character Definitions" description="Names, system instructions, and contextual info for all AI characters within selected chats." checked={localConfig.includeAiCharacterDefinitions} onChange={handleToggleChange} disabled={isCoreDataDisabled} />
@@ -218,9 +221,9 @@ const ExportConfigurationModal: React.FC = memo(() => {
         <div className="mt-6 flex flex-col sm:flex-row justify-between items-center pt-4 border-t border-[var(--aurora-border)] flex-shrink-0 space-y-3 sm:space-y-0">
           <button onClick={handleResetConfigDefaults} type="button" className="px-3 py-2 text-xs font-medium text-blue-400 transition-all hover:text-blue-300 hover:drop-shadow-[0_0_3px_rgba(147,197,253,0.8)] flex items-center sm:w-auto w-full justify-center"><ArrowPathIcon className="w-3.5 h-3.5 mr-1.5" /> Reset Preferences</button>
           <div className="flex flex-col sm:flex-row space-y-3 sm:space-y-0 sm:space-x-3 w-full sm:w-auto">
-            <button onClick={uiActions.closeExportConfigurationModal} type="button" className="px-4 py-2.5 text-sm font-medium text-gray-300 bg-white/5 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)] w-full sm:w-auto">Cancel</button>
+            <button onClick={closeExportConfigurationModal} type="button" className="px-4 py-2.5 text-sm font-medium text-gray-300 bg-white/5 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)] w-full sm:w-auto">Cancel</button>
             <button onClick={handleSaveCurrentConfig} type="button" className="px-4 py-2.5 text-sm font-medium text-white bg-green-600/80 rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(34,197,94,0.6)] flex items-center justify-center w-full sm:w-auto"><CheckIcon className="w-4 h-4 mr-1.5" /> Save Preferences</button>
-            <button onClick={handleInitiateExport} type="button" disabled={selectedChatIds.length === 0} className="px-4 py-2.5 text-sm font-medium text-white bg-[var(--aurora-accent-primary)] rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(90,98,245,0.6)] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"><DocumentDuplicateIcon className="w-4 h-4 mr-1.5" /> Export Selected ({selectedChatIds.length})</button>
+            <button onClick={handleInitiateExport} type="button" disabled={selectedChatIds.length === 0} className="px-4 py-2.5 text-sm font-medium text-white bg-[var(--aurora-accent-primary)] rounded-md transition-shadow hover:shadow-[0_0_12px_2px_rgba(90,98,254,0.6)] flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed w-full sm:w-auto"><DocumentDuplicateIcon className="w-4 h-4 mr-1.5" /> Export Selected ({selectedChatIds.length})</button>
           </div>
         </div>
       </div>

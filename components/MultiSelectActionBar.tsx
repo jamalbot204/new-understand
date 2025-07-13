@@ -1,36 +1,28 @@
-// src/components/MultiSelectActionBar.tsx
-import React, { memo, useCallback, useMemo } from 'react';
-import { useUIStore } from '../stores/uiStore.ts';
-import { useSessionStore } from '../stores/sessionStore.ts';
-import { useAppConfigStore } from '../stores/appConfigStore.ts';
-import { useChatStore } from '../stores/chatStore.ts';
-import { useAudioContext } from '../contexts/AudioContext.tsx';
+
+
+
+import React, { memo, useCallback } from 'react';
+import { useSelectionStore } from '../store/useSelectionStore.ts';
+import { useAudioStore } from '../store/useAudioStore.ts';
+import { useGlobalUiStore } from '../store/useGlobalUiStore.ts';
 import { TrashIcon, AudioResetIcon, XCircleIcon } from './Icons.tsx';
-import { INITIAL_MESSAGES_COUNT } from '../constants.ts';
+import { useInteractionStore } from '../store/useInteractionStore.ts';
+import { useMessageStore } from '../store/useMessageStore.ts';
 
 const MultiSelectActionBar: React.FC = memo(() => {
-  const { selectedMessageIds } = useUIStore();
-  const { clearSelection, toggleSelectionMode, selectAllVisible } = useUIStore(state => state.actions);
-  
-  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
-  const messagesToDisplay = useAppConfigStore(s => s.messagesToDisplayConfig[currentChatSession?.id ?? ''] ?? currentChatSession?.settings.maxInitialMessagesDisplayed ?? INITIAL_MESSAGES_COUNT);
-  const visibleMessagesForCurrentChat = useMemo(() => {
-      if (!currentChatSession) return [];
-      return currentChatSession.messages.slice(-messagesToDisplay);
-  }, [currentChatSession, messagesToDisplay]);
-
-  const { deleteMultipleMessages } = useChatStore(state => state.actions);
-  const audio = useAudioContext();
-
-  const { handleResetAudioCacheForMultipleMessages } = audio;
+  const { visibleMessages } = useMessageStore();
+  const { deleteMultipleMessages } = useInteractionStore();
+  const { handleResetAudioCacheForMultipleMessages } = useAudioStore();
+  const { isSidebarOpen } = useGlobalUiStore();
+  const { selectedMessageIds, clearSelection, toggleSelectionMode, selectAllVisible } = useSelectionStore();
 
   const selectedCount = selectedMessageIds.size;
-  const visibleMessageIds = visibleMessagesForCurrentChat.map(m => m.id);
+  const visibleMessageIds = visibleMessages.map(m => m.id);
 
   const handleDelete = useCallback(() => {
-    if (selectedCount === 0 || !currentChatSession) return;
+    if (selectedCount === 0) return;
     deleteMultipleMessages(Array.from(selectedMessageIds));
-  }, [selectedCount, deleteMultipleMessages, selectedMessageIds, currentChatSession]);
+  }, [selectedCount, deleteMultipleMessages, selectedMessageIds]);
 
   const handleResetAudio = useCallback(() => {
     if (selectedCount === 0) return;
@@ -44,8 +36,6 @@ const MultiSelectActionBar: React.FC = memo(() => {
   const handleDone = useCallback(() => {
     toggleSelectionMode();
   }, [toggleSelectionMode]);
-
-  const isSidebarOpen = useUIStore(state => state.isSidebarOpen);
 
   return (
     <div className={`fixed bottom-0 left-0 right-0 bg-gray-900/90 backdrop-blur-sm border-t border-gray-700 p-2 sm:p-3 z-30 transition-all duration-300 ease-in-out ${isSidebarOpen ? 'md:left-72' : 'left-0'}`}>

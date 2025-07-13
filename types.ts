@@ -1,6 +1,10 @@
+
+
 // Fix: Removed incorrect import of 'ChatSession as GeminiChatSessionSDK'
 import React from 'react';
 import { Content, Part as GeminiPart, SafetySetting as GeminiSafetySettingSDK, Tool } from "@google/genai";
+import { EditMessagePanelAction, EditMessagePanelDetails } from './components/EditMessagePanel.tsx';
+
 
 export enum ChatMessageRole {
   USER = 'user',
@@ -239,20 +243,6 @@ export interface AudioPlayerState {
   playbackRate: number; 
 }
 
-export enum EditMessagePanelAction {
-  SAVE_LOCALLY,
-  CONTINUE_PREFIX,
-  SAVE_AND_SUBMIT,
-}
-
-export interface EditMessagePanelDetails {
-  sessionId: string;
-  messageId: string;
-  originalContent: string;
-  role: ChatMessageRole;
-  attachments?: Attachment[];
-}
-
 export interface UseGeminiReturn {
   isLoading: boolean;
   currentGenerationTimeDisplay: string;
@@ -396,4 +386,104 @@ export interface UseAutoSendReturn {
   isPreparingAutoSend: boolean;
   isWaitingForErrorRetry: boolean; 
   errorRetryCountdown: number;
+}
+export interface ChatStateContextType {
+  chatHistory: ChatSession[];
+  isLoadingData: boolean;
+  currentExportConfig: ExportConfiguration;
+  messageGenerationTimes: Record<string, number>;
+}
+
+export interface ChatActionsContextType {
+  setChatHistory: React.Dispatch<React.SetStateAction<ChatSession[]>>;
+  updateChatSession: (sessionId: string, updater: (session: ChatSession) => ChatSession | null) => Promise<void>;
+  handleNewChat: () => void;
+  handleSelectChat: (id: string) => void;
+  handleDeleteChat: (id: string) => void;
+  logApiRequest: LogApiRequestCallback;
+  handleExportChats: (chatIdsToExport: string[], exportConfig: ExportConfiguration) => Promise<void>;
+  handleImportAll: () => Promise<void>;
+  handleManualSave: () => Promise<void>;
+  handleStartEditChatTitle: (sessionId: string, currentTitle: string) => void;
+  handleSaveChatTitle: () => Promise<void>;
+  handleCancelEditChatTitle: () => void;
+  handleEditTitleInputChange: (newTitle: string) => void;
+  handleDuplicateChat: (sessionId: string) => Promise<void>;
+  triggerAutoPlayForNewMessage: (callback: (newAiMessage: ChatMessage) => Promise<void>) => void;
+  performActualAudioCacheReset: (sessionId: string, messageId: string) => Promise<void>;
+}
+
+export interface ToastInfo {
+  message: string;
+  type: 'success' | 'error';
+  duration?: number;
+}
+
+export interface FilenameInputModalTriggerProps {
+  defaultFilename: string;
+  promptMessage: string;
+  onSubmit: (filename: string) => void;
+}
+
+export interface UIContextType {
+  // From useAppUI
+  showToast: (message: string, type?: 'success' | 'error', duration?: number) => void;
+
+  // From useAppModals
+  isSettingsPanelOpen: boolean;
+  openSettingsPanel: () => void;
+  closeSettingsPanel: () => void;
+  isTtsSettingsModalOpen: boolean;
+  openTtsSettingsModal: () => void;
+  closeTtsSettingsModal: () => void;
+  isEditPanelOpen: boolean;
+  editingMessageDetail: EditMessagePanelDetails | null;
+  openEditPanel: (details: EditMessagePanelDetails) => void;
+  closeEditPanel: () => void;
+  isCharacterManagementModalOpen: boolean;
+  openCharacterManagementModal: () => void;
+  closeCharacterManagementModal: () => void;
+  isContextualInfoModalOpen: boolean;
+  editingCharacterForContextualInfo: AICharacter | null;
+  openCharacterContextualInfoModal: (character: AICharacter) => void;
+  closeCharacterContextualInfoModal: () => void;
+  isDebugTerminalOpen: boolean;
+  openDebugTerminal: () => void;
+  closeDebugTerminal: () => void;
+  isExportConfigModalOpen: boolean;
+  openExportConfigurationModal: () => void;
+  closeExportConfigurationModal: () => void;
+  isDeleteConfirmationOpen: boolean;
+  deleteTarget: { sessionId: string; messageId: string } | null;
+  requestDeleteConfirmation: (target: { sessionId: string; messageId: string }) => void;
+  cancelDeleteConfirmation: () => void;
+  setIsDeleteConfirmationOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  isResetAudioConfirmationOpen: boolean;
+  resetAudioTarget: { sessionId: string; messageId: string } | null;
+  requestResetAudioCacheConfirmation: (sessionId: string, messageId: string) => void;
+  cancelResetAudioCacheConfirmation: () => void;
+  setIsResetAudioConfirmationOpen: React.Dispatch<React.SetStateAction<boolean>>;
+
+  // For FilenameInputModal
+  isFilenameInputModalOpen: boolean;
+  filenameInputModalProps: FilenameInputModalTriggerProps | null;
+  openFilenameInputModal: (props: FilenameInputModalTriggerProps) => void;
+  closeFilenameInputModal: () => void;
+  submitFilenameInputModal: (filename: string) => void;
+
+  // For ChatAttachmentsModal
+  isChatAttachmentsModalOpen: boolean;
+  attachmentsForModal: AttachmentWithContext[];
+  openChatAttachmentsModal: (session: ChatSession | null) => void;
+  closeChatAttachmentsModal: () => void;
+
+  // For ApiKeyModal
+  isApiKeyModalOpen: boolean;
+  openApiKeyModal: () => void;
+  closeApiKeyModal: () => void;
+
+  // For GitHubImportModal
+  isGitHubImportModalOpen: boolean;
+  openGitHubImportModal: () => void;
+  closeGitHubImportModal: () => void;
 }

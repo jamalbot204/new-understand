@@ -1,11 +1,12 @@
-// components/ChatAttachmentsModal.tsx
+
+
 
 import React, { memo, useCallback } from 'react';
 import { AttachmentWithContext, ChatMessageRole } from '../types.ts';
-import { CloseIcon, DocumentIcon, PlayCircleIcon, ArrowUturnLeftIcon, UserIcon, SparklesIcon } from './Icons.tsx'; // Assuming Sparkles for AI
-import RefreshAttachmentButton from './RefreshAttachmentButton.tsx'; // Import the button
-import { useSessionStore } from '../stores/sessionStore.ts';
-import { useChatStore } from '../stores/chatStore.ts';
+import { CloseIcon, DocumentIcon, PlayCircleIcon, ArrowUturnLeftIcon, UserIcon, SparklesIcon } from './Icons.tsx';
+import RefreshAttachmentButton from './RefreshAttachmentButton.tsx';
+import { useGeminiApiStore } from '../store/useGeminiApiStore.ts'; // Import new store
+import { useInteractionStore } from '../store/useInteractionStore.ts';
 
 interface ChatAttachmentsModalProps {
   isOpen: boolean;
@@ -22,9 +23,8 @@ const ChatAttachmentsModal: React.FC<ChatAttachmentsModalProps> = memo(({
   onClose,
   onGoToMessage,
 }) => {
-  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
-  const { reUploadAttachment } = useChatStore(state => state.actions);
-  const isLoading = useChatStore(state => state.isLoading);
+  const { reUploadAttachment } = useInteractionStore();
+  const isLoading = useGeminiApiStore(s => s.isLoading); // Get state from store
 
   const getFileIcon = useCallback((item: AttachmentWithContext) => {
     const { attachment } = item;
@@ -91,7 +91,7 @@ const ChatAttachmentsModal: React.FC<ChatAttachmentsModalProps> = memo(({
                   {item.attachment.fileUri && (
                     <RefreshAttachmentButton 
                       attachment={item.attachment}
-                      onReUpload={() => reUploadAttachment(currentChatSession!.id, item.messageId, item.attachment.id)}
+                      onReUpload={() => reUploadAttachment(item.messageId, item.attachment.id)}
                       disabled={item.attachment.isReUploading || isLoading}
                     />
                   )}

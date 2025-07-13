@@ -1,7 +1,9 @@
 
 
+
 import React, { useState, useEffect, useRef, memo, useCallback } from 'react';
 import { SaveDiskIcon, CheckIcon } from './Icons.tsx';
+import { useToastStore } from '../store/useToastStore.ts';
 interface ManualSaveButtonProps {
   onManualSave: () => Promise<void>;
   disabled?: boolean;
@@ -11,6 +13,7 @@ const ManualSaveButton: React.FC<ManualSaveButtonProps> = memo(({ onManualSave, 
   const [isSaving, setIsSaving] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const successTimeoutRef = useRef<number | null>(null);
+  const showToast = useToastStore(state => state.showToast);
 
   useEffect(() => {
     return () => {
@@ -32,11 +35,11 @@ const ManualSaveButton: React.FC<ManualSaveButtonProps> = memo(({ onManualSave, 
       }, 2000);
     } catch (error) {
       console.error("Manual save trigger failed:", error);
-      // Error display is expected to be handled by the parent's onManualSave (e.g., via toast)
+      showToast("Failed to save app state.", "error");
     } finally {
       setIsSaving(false);
     }
-  }, [isSaving, disabled, onManualSave]);
+  }, [isSaving, disabled, onManualSave, showToast]);
 
   const IconToDisplay = showSuccess ? CheckIcon : SaveDiskIcon;
   const iconColor = showSuccess ? 'text-green-400' : (isSaving ? 'text-blue-400 animate-pulse' : 'text-gray-300');

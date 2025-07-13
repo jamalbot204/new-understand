@@ -1,3 +1,4 @@
+
 import React, { useEffect, memo, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -5,8 +6,8 @@ import { PrismAsyncLight as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { atomDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { CloseIcon } from './Icons.tsx';
 import AdvancedAudioPlayer from './AdvancedAudioPlayer.tsx';
-import { useAudioContext } from '../contexts/AudioContext.tsx';
-import { useSessionStore } from '../stores/sessionStore.ts';
+import { useAudioStore } from '../store/useAudioStore.ts';
+import { useActiveChatStore } from '../store/useActiveChatStore.ts';
 
 // Import and register only the necessary languages
 import javascript from 'react-syntax-highlighter/dist/esm/languages/prism/javascript';
@@ -70,8 +71,8 @@ const CodeBlock: React.FC<React.PropsWithChildren<{ inline?: boolean; className?
 });
 
 const ReadModeView: React.FC<ReadModeViewProps> = memo(({ isOpen, content, onClose, onGoToMessage }) => {
-  const audio = useAudioContext();
-  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
+  const { audioPlayerState, handleClosePlayerViewOnly, seekRelative, seekToAbsolute, togglePlayPause, increaseSpeed, decreaseSpeed } = useAudioStore();
+  const { currentChatSession } = useActiveChatStore();
 
   const handleGoToMessageFromReadMode = useCallback(() => {
     if (onGoToMessage) {
@@ -105,13 +106,13 @@ const ReadModeView: React.FC<ReadModeViewProps> = memo(({ isOpen, content, onClo
     return null;
   }
 
-  const isAudioBarVisible = !!(audio.audioPlayerState.currentMessageId || audio.audioPlayerState.isLoading || audio.audioPlayerState.isPlaying || audio.audioPlayerState.currentPlayingText);
+  const isAudioBarVisible = !!(audioPlayerState.currentMessageId || audioPlayerState.isLoading || audioPlayerState.isPlaying || audioPlayerState.currentPlayingText);
   
   const getFullTextForAudioBar = () => {
-    if (!audio.audioPlayerState.currentMessageId || !currentChatSession) return audio.audioPlayerState.currentPlayingText || "Playing audio...";
-    const baseId = audio.audioPlayerState.currentMessageId.split('_part_')[0];
+    if (!audioPlayerState.currentMessageId || !currentChatSession) return audioPlayerState.currentPlayingText || "Playing audio...";
+    const baseId = audioPlayerState.currentMessageId.split('_part_')[0];
     const message = currentChatSession.messages.find(m => m.id === baseId);
-    return message ? message.content : (audio.audioPlayerState.currentPlayingText || "Playing audio...");
+    return message ? message.content : (audioPlayerState.currentPlayingText || "Playing audio...");
   };
 
   return (
@@ -134,25 +135,25 @@ const ReadModeView: React.FC<ReadModeViewProps> = memo(({ isOpen, content, onClo
 
       {isAudioBarVisible && (
         <div 
-            className="flex-shrink-0 w-full max-w-4xl mx-auto pb-4"
+            className="flex-shrink-0 w-full mx-auto pb-4"
             onClick={(e) => e.stopPropagation()} // Stop click from bubbling to the background
         >
           <AdvancedAudioPlayer
-            audioPlayerState={audio.audioPlayerState}
-            onCloseView={audio.handleClosePlayerViewOnly}
-            onSeekRelative={audio.seekRelative}
-            onSeekToAbsolute={audio.seekToAbsolute}
-            onTogglePlayPause={audio.togglePlayPause}
+            audioPlayerState={audioPlayerState}
+            onCloseView={handleClosePlayerViewOnly}
+            onSeekRelative={seekRelative}
+            onSeekToAbsolute={seekToAbsolute}
+            onTogglePlayPause={togglePlayPause}
             currentMessageText={getFullTextForAudioBar()}
             onGoToMessage={handleGoToMessageFromReadMode}
-            onIncreaseSpeed={audio.increaseSpeed}
-            onDecreaseSpeed={audio.decreaseSpeed}
+            onIncreaseSpeed={increaseSpeed}
+            onDecreaseSpeed={decreaseSpeed}
           />
         </div>
       )}
 
       <div
-        className="flex-grow w-full max-w-4xl mx-auto overflow-y-auto hide-scrollbar"
+        className="flex-grow w-full mx-auto overflow-y-auto hide-scrollbar"
         onClick={(e) => e.stopPropagation()} // Prevent closing when clicking the content area
       >
         <div className="aurora-panel p-6 sm:p-8 rounded-lg markdown-content">

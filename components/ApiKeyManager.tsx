@@ -1,7 +1,8 @@
-// src/components/ApiKeyManager.tsx
+
+
 import React, { memo, useCallback } from 'react';
-import { useApiKeyStore } from '../stores/apiKeyStore.ts';
-import { useUIStore } from '../stores/uiStore.ts';
+import { useApiKeyStore } from '../store/useApiKeyStore.ts';
+import { useModalStore } from '../store/useModalStore.ts';
 import { ApiKey } from '../types.ts';
 import { PlusIcon, TrashIcon, CheckIcon, ChevronUpIcon, ChevronDownIcon, ChevronDoubleUpIcon, ChevronDoubleDownIcon, EyeIcon, EyeOffIcon, ArrowPathIcon } from './Icons.tsx';
 
@@ -23,6 +24,7 @@ const ApiKeyItem: React.FC<{
   onMove: (id: string, direction: 'up' | 'down') => void;
   onMoveToEdge: (id: string, edge: 'top' | 'bottom') => void;
 }> = memo(({ apiKey, isFirst, isLast, isKeyVisible, onUpdate, onDelete, onMove, onMoveToEdge }) => {
+
   const handleDeleteClick = useCallback(() => {
     onDelete(apiKey.id);
   }, [onDelete, apiKey.id]);
@@ -79,12 +81,11 @@ const ApiKeyItem: React.FC<{
 
 
 const ApiKeyManager: React.FC = memo(() => {
-  const { apiKeys, isKeyVisible, isRotationEnabled } = useApiKeyStore();
-  const { addApiKey, updateApiKey, toggleKeyVisibility, moveKey, moveKeyToEdge, toggleRotation } = useApiKeyStore(state => state.actions);
-  const { requestDeleteConfirmation } = useUIStore(state => state.actions);
+  const { apiKeys, isKeyVisible, addApiKey, updateApiKey, toggleKeyVisibility, moveKey, moveKeyToEdge, isRotationEnabled, toggleRotation } = useApiKeyStore();
+  const requestDeleteConfirmation = useModalStore(state => state.requestDeleteConfirmation);
 
   const handleDelete = useCallback((id: string) => {
-    requestDeleteConfirmation(id, 'api-key');
+    requestDeleteConfirmation({ sessionId: id, messageId: 'api-key' });
   }, [requestDeleteConfirmation]);
   
   return (

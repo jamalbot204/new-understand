@@ -50,9 +50,9 @@ export const splitTextForTts = (fullText: string, maxWordsPerSegment?: number): 
 
 export function sanitizeFilename(
     name: string,
-    maxLength: number = 50,
-    replacement: string = '_'
+    maxLength: number = 50
   ): string {
+    const replacement = '_';
     if (!name) return '';
   
     // Convert to lowercase
@@ -61,9 +61,8 @@ export function sanitizeFilename(
     // Replace sequences of whitespace and hyphens with a single replacement character
     SaneName = SaneName.replace(/[\s-]+/g, replacement);
   
-    // Remove any characters that are not alphanumeric, underscore, or hyphen (if replacement is not hyphen)
-    const allowedCharsRegex = replacement === '-' ? /[^a-z0-9_-]/g : /[^a-z0-9_]/g;
-    SaneName = SaneName.replace(allowedCharsRegex, '');
+    // Remove any characters that are not alphanumeric or underscore
+    SaneName = SaneName.replace(/[^a-z0-9_]/g, '');
   
     // Remove leading/trailing replacement characters
     const escapeRegex = (str: string) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');

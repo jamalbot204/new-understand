@@ -1,16 +1,31 @@
-// src/components/EditMessagePanel.tsx
-import { useState, useEffect, useCallback, memo } from 'react';
-import { useChatStore } from '../stores/chatStore.ts';
-import { useUIStore } from '../stores/uiStore.ts';
-import { ChatMessageRole, EditMessagePanelAction } from '../types.ts';
+
+
+import React, { useState, useEffect, useCallback, memo } from 'react';
+import { useModalStore } from '../store/useModalStore.ts';
+import { ChatMessageRole, Attachment } from '../types.ts';
 import { CloseIcon, SparklesIcon, UserIcon, SaveDiskIcon, XCircleIcon, SubmitPlayIcon, ContinueArrowIcon } from './Icons.tsx';
 import useAutoResizeTextarea from '../hooks/useAutoResizeTextarea.ts';
+import { useGeminiApiStore } from '../store/useGeminiApiStore.ts'; // Import new store
 
-export default memo(function EditMessagePanel() {
-  const { editPanelSubmit, cancelGeneration } = useChatStore(state => state.actions);
-  const { isLoading } = useChatStore();
-  const { isEditPanelOpen, editingMessageDetail } = useUIStore();
-  const { closeEditPanel } = useUIStore(state => state.actions);
+export enum EditMessagePanelAction {
+  CANCEL = 'cancel',
+  SAVE_LOCALLY = 'save_locally',
+  SAVE_AND_SUBMIT = 'save_and_submit',
+  CONTINUE_PREFIX = 'continue_prefix',
+}
+
+export interface EditMessagePanelDetails {
+  sessionId: string;
+  messageId: string;
+  originalContent: string;
+  role: ChatMessageRole;
+  attachments?: Attachment[];
+}
+
+const EditMessagePanel: React.FC = memo(() => {
+  const { handleEditPanelSubmit, handleCancelGeneration } = useGeminiApiStore.getState(); // Get action from store
+  const isLoading = useGeminiApiStore(s => s.isLoading); // Get state from store
+  const { isEditPanelOpen, editingMessageDetail, closeEditPanel } = useModalStore();
 
   const [editedContent, setEditedContent] = useState('');
   const textareaRef = useAutoResizeTextarea<HTMLTextAreaElement>(editedContent, 300);
@@ -29,15 +44,16 @@ export default memo(function EditMessagePanel() {
 
   const handleAction = useCallback((action: EditMessagePanelAction) => {
     if (!editingMessageDetail) return;
-    editPanelSubmit(action, editedContent, editingMessageDetail);
-  }, [editingMessageDetail, editPanelSubmit, editedContent]);
+    closeEditPanel();
+    handleEditPanelSubmit(action, editedContent, editingMessageDetail as any);
+  }, [editingMessageDetail, handleEditPanelSubmit, editedContent, closeEditPanel]);
   
   const handleCancelClick = useCallback(() => {
     if (editingMessageDetail && isLoading && editingMessageDetail.role === ChatMessageRole.MODEL) {
-      cancelGeneration();
+      handleCancelGeneration();
     }
     closeEditPanel();
-  }, [isLoading, editingMessageDetail, cancelGeneration, closeEditPanel]);
+  }, [isLoading, editingMessageDetail, handleCancelGeneration, closeEditPanel]);
 
   if (!isEditPanelOpen || !editingMessageDetail) return null;
   
@@ -86,3 +102,5 @@ export default memo(function EditMessagePanel() {
     </div>
   );
 });
+
+export default EditMessagePanel;

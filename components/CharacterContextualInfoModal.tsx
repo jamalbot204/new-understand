@@ -1,14 +1,13 @@
-// src/components/CharacterContextualInfoModal.tsx
 import React, { useState, useEffect, memo, useCallback } from 'react';
-import { useChatStore } from '../stores/chatStore.ts';
-import { useUIStore } from '../stores/uiStore.ts';
+import { useCharacterStore } from '../store/useCharacterStore.ts';
+import { useModalStore } from '../store/useModalStore.ts';
 import { CloseIcon } from './Icons.tsx';
 import useAutoResizeTextarea from '../hooks/useAutoResizeTextarea.ts';
 
+// No props are needed anymore!
 const CharacterContextualInfoModal: React.FC = memo(() => {
-  const { saveCharacterContextualInfo } = useChatStore(state => state.actions);
-  const { isContextualInfoModalOpen, editingCharacterForContextualInfo } = useUIStore();
-  const { closeCharacterContextualInfoModal } = useUIStore(state => state.actions);
+  const { saveContextualInfo } = useCharacterStore();
+  const { isContextualInfoModalOpen, editingCharacterForContextualInfo, closeCharacterContextualInfoModal } = useModalStore();
   
   const [infoText, setInfoText] = useState('');
   const textareaRef = useAutoResizeTextarea<HTMLTextAreaElement>(infoText, 250);
@@ -27,9 +26,9 @@ const CharacterContextualInfoModal: React.FC = memo(() => {
 
   const handleSave = useCallback(() => {
     if (!editingCharacterForContextualInfo) return;
-    saveCharacterContextualInfo(editingCharacterForContextualInfo.id, infoText);
+    saveContextualInfo(editingCharacterForContextualInfo.id, infoText);
     closeCharacterContextualInfoModal();
-  }, [editingCharacterForContextualInfo, saveCharacterContextualInfo, infoText, closeCharacterContextualInfoModal]);
+  }, [editingCharacterForContextualInfo, saveContextualInfo, infoText, closeCharacterContextualInfoModal]);
   
   const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInfoText(e.target.value);

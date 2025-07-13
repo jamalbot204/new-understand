@@ -1,21 +1,19 @@
-import React, { memo } from 'react';
-import { useUIStore } from './stores/uiStore.ts'; 
-import { AudioProvider } from './contexts/AudioContext.tsx';
-import AppContent from './components/AppContent.tsx';
 
+
+import React, { memo } from 'react';
+import AppContent from './components/AppContent.tsx';
+import { AudioStoreBridge } from './components/AudioStoreBridge.tsx';
+import { DataStoreBridge } from './components/DataStoreBridge.tsx';
+import { AttachmentStoreBridge } from './components/AttachmentStoreBridge.tsx';
 
 const App: React.FC = memo(() => {
-  
-  React.useEffect(() => {
-    // Initialize stores that need to load data from DB.
-    // This is a good place to trigger initial loads.
-    useUIStore.getState().actions.initializeLayout();
-  }, []);
-
   return (
-    <AudioProvider>
+    <>
+      <AudioStoreBridge />
+      <DataStoreBridge />
+      <AttachmentStoreBridge />
       <AppContent />
-    </AudioProvider>
+    </>
   );
 });
 

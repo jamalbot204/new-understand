@@ -1,16 +1,15 @@
-// src/components/CharacterManagementModal.tsx
 import React, { useState, useEffect, memo, useCallback } from 'react';
-import { useSessionStore } from '../stores/sessionStore.ts';
-import { useChatStore } from '../stores/chatStore.ts';
-import { useUIStore } from '../stores/uiStore.ts';
+import { useCharacterStore } from '../store/useCharacterStore.ts';
+import { useModalStore } from '../store/useModalStore.ts';
+import { useActiveChatStore } from '../store/useActiveChatStore.ts';
 import { AICharacter } from '../types.ts';
 import { CloseIcon, PencilIcon, TrashIcon, InfoIcon } from './Icons.tsx';
 
+// No props are needed anymore!
 const CharacterManagementModal: React.FC = memo(() => {
-  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
-  const { addCharacter, editCharacter, deleteCharacter } = useChatStore(state => state.actions);
-  const { isCharacterManagementModalOpen } = useUIStore();
-  const { closeCharacterManagementModal, openCharacterContextualInfoModal } = useUIStore(state => state.actions);
+  const { currentChatSession } = useActiveChatStore();
+  const { addCharacter, editCharacter, deleteCharacter } = useCharacterStore();
+  const { isCharacterManagementModalOpen, closeCharacterManagementModal, openCharacterContextualInfoModal } = useModalStore();
 
   const [editingCharacter, setEditingCharacter] = useState<AICharacter | null>(null);
   const [newCharName, setNewCharName] = useState('');

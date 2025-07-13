@@ -1,17 +1,18 @@
-// src/components/TtsSettingsModal.tsx
+
+
 import React, { useState, useEffect, memo, useCallback } from 'react';
-import { useSessionStore } from '../stores/sessionStore.ts';
-import { useUIStore } from '../stores/uiStore.ts';
+import { useModalStore } from '../store/useModalStore.ts';
+import { useActiveChatStore } from '../store/useActiveChatStore.ts';
 import { TTSSettings, TTSModelId, TTSVoiceId } from '../types.ts';
-import { DEFAULT_TTS_SETTINGS, TTS_MODELS, TTS_VOICES } from '../constants.ts';
+import { DEFAULT_TTS_SETTINGS } from '../constants.ts';
 import { CloseIcon, PencilIcon } from './Icons.tsx';
+import { TTS_MODELS, TTS_VOICES } from '../constants.ts';
 import InstructionEditModal from './InstructionEditModal.tsx';
 
+// No props are needed anymore!
 const TtsSettingsModal: React.FC = memo(() => {
-  const currentChatSession = useSessionStore(state => state.chatHistory.find(s => s.id === state.currentChatId));
-  const { updateChatSession } = useSessionStore(state => state.actions);
-  const isTtsSettingsModalOpen = useUIStore(state => state.isTtsSettingsModalOpen);
-  const { closeTtsSettingsModal } = useUIStore(state => state.actions);
+  const { currentChatSession, updateCurrentChatSession } = useActiveChatStore();
+  const { isTtsSettingsModalOpen, closeTtsSettingsModal } = useModalStore();
 
   const [localTtsSettings, setLocalTtsSettings] = useState<TTSSettings>(currentChatSession?.settings.ttsSettings || DEFAULT_TTS_SETTINGS);
   const [isInstructionModalOpen, setIsInstructionModalOpen] = useState(false);
@@ -65,12 +66,12 @@ const TtsSettingsModal: React.FC = memo(() => {
 
   const handleApplySettings = useCallback(() => {
     if (!currentChatSession) return;
-    updateChatSession(currentChatSession.id, session => session ? ({
+    updateCurrentChatSession(session => session ? ({
         ...session,
         settings: { ...session.settings, ttsSettings: localTtsSettings }
     }) : null);
     closeTtsSettingsModal();
-  }, [currentChatSession, updateChatSession, localTtsSettings, closeTtsSettingsModal]);
+  }, [currentChatSession, updateCurrentChatSession, localTtsSettings, closeTtsSettingsModal]);
   
   const handleResetDefaults = useCallback(() => {
     setLocalTtsSettings(DEFAULT_TTS_SETTINGS);
