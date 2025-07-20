@@ -18,7 +18,7 @@ interface ApiKeyState {
   toggleKeyVisibility: () => void;
   moveKey: (id: string, direction: 'up' | 'down') => void;
   moveKeyToEdge: (id: string, edge: 'top' | 'bottom') => void;
-  rotateActiveKey: () => Promise<void>;
+  rotateActiveKey: () => Promise<ApiKey | null>;
   toggleRotation: () => void;
 }
 
@@ -131,14 +131,19 @@ export const useApiKeyStore = create<ApiKeyState>((set, get) => ({
     persistRotationSetting(newRotationState);
   },
 
-  rotateActiveKey: async () => {
+  rotateActiveKey: async (): Promise<ApiKey | null> => {
     const { isRotationEnabled, apiKeys } = get();
-    if (!isRotationEnabled || apiKeys.length < 2) {
-      return;
+    if (!isRotationEnabled || apiKeys.length === 0) {
+      return get().activeApiKey;
+    }
+    if (apiKeys.length < 2) {
+      return apiKeys[0];
     }
     const newKeys = [...apiKeys.slice(1), apiKeys[0]];
-    set({ apiKeys: newKeys, activeApiKey: newKeys[0] });
+    const newActiveKey = newKeys[0];
+    set({ apiKeys: newKeys, activeApiKey: newActiveKey });
     await persistKeys(newKeys);
+    return newActiveKey;
   },
   
   toggleKeyVisibility: () => set(state => ({ isKeyVisible: !state.isKeyVisible })),

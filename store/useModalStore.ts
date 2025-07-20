@@ -5,6 +5,7 @@ import { useGlobalUiStore } from './useGlobalUiStore';
 import { EditMessagePanelDetails } from '../components/EditMessagePanel';
 import { AICharacter, ChatSession, AttachmentWithContext, FilenameInputModalTriggerProps } from '../types';
 import { useToastStore } from './useToastStore';
+import { useInteractionLockStore } from './useInteractionLockStore';
 
 export interface ModalState {
   // State from useAppModals
@@ -86,18 +87,21 @@ export const useModalStore = create<ModalState>((set, get) => ({
   injectedMessageEditTarget: null,
 
   openSettingsPanel: () => {
+    useInteractionLockStore.getState().activateLock();
     set({ isSettingsPanelOpen: true });
     useGlobalUiStore.getState().closeSidebar();
   },
   closeSettingsPanel: () => set({ isSettingsPanelOpen: false }),
   
   openTtsSettingsModal: () => {
+    useInteractionLockStore.getState().activateLock();
     set({ isTtsSettingsModalOpen: true });
     useGlobalUiStore.getState().closeSidebar();
   },
   closeTtsSettingsModal: () => set({ isTtsSettingsModalOpen: false }),
 
   openEditPanel: (details) => {
+    useInteractionLockStore.getState().activateLock();
     set(() => ({
       editingMessageDetail: details,
       isEditPanelOpen: true,
@@ -108,12 +112,14 @@ export const useModalStore = create<ModalState>((set, get) => ({
   closeEditPanel: () => set({ isEditPanelOpen: false, editingMessageDetail: null }),
 
   openCharacterManagementModal: () => {
+    useInteractionLockStore.getState().activateLock();
     set({ isCharacterManagementModalOpen: true });
     useGlobalUiStore.getState().closeSidebar();
   },
   closeCharacterManagementModal: () => set({ isCharacterManagementModalOpen: false }),
 
   openCharacterContextualInfoModal: (character) => {
+    useInteractionLockStore.getState().activateLock();
     set({ editingCharacterForContextualInfo: character, isContextualInfoModalOpen: true });
   },
   closeCharacterContextualInfoModal: () => {
@@ -121,18 +127,21 @@ export const useModalStore = create<ModalState>((set, get) => ({
   },
 
   openDebugTerminal: () => {
+    useInteractionLockStore.getState().activateLock();
     set({ isDebugTerminalOpen: true });
     useGlobalUiStore.getState().closeSidebar();
   },
   closeDebugTerminal: () => set({ isDebugTerminalOpen: false }),
 
   openExportConfigurationModal: () => {
+    useInteractionLockStore.getState().activateLock();
     set({ isExportConfigModalOpen: true });
     useGlobalUiStore.getState().closeSidebar();
   },
   closeExportConfigurationModal: () => set({ isExportConfigModalOpen: false }),
 
   requestDeleteConfirmation: (target) => {
+    useInteractionLockStore.getState().activateLock();
     set({ deleteTarget: target, isDeleteConfirmationOpen: true });
   },
   cancelDeleteConfirmation: () => {
@@ -140,6 +149,7 @@ export const useModalStore = create<ModalState>((set, get) => ({
   },
 
   requestResetAudioCacheConfirmation: (sessionId: string, messageId: string) => {
+    useInteractionLockStore.getState().activateLock();
     set({ resetAudioTarget: { sessionId, messageId }, isResetAudioConfirmationOpen: true });
   },
   cancelResetAudioCacheConfirmation: () => {
@@ -147,6 +157,7 @@ export const useModalStore = create<ModalState>((set, get) => ({
   },
 
   openFilenameInputModal: (props) => {
+    useInteractionLockStore.getState().activateLock();
     set({ filenameInputModalProps: props, isFilenameInputModalOpen: true });
     useGlobalUiStore.getState().closeSidebar();
   },
@@ -159,6 +170,7 @@ export const useModalStore = create<ModalState>((set, get) => ({
   },
 
   openChatAttachmentsModal: (session) => {
+    useInteractionLockStore.getState().activateLock();
     if (!session || !session.messages || session.messages.length === 0) {
       useToastStore.getState().showToast("No chat session active or session has no messages.", "error");
       return;
@@ -192,18 +204,21 @@ export const useModalStore = create<ModalState>((set, get) => ({
   },
 
   openApiKeyModal: () => {
+    useInteractionLockStore.getState().activateLock();
     set({ isApiKeyModalOpen: true });
     useGlobalUiStore.getState().closeSidebar();
   },
   closeApiKeyModal: () => set({ isApiKeyModalOpen: false }),
 
   openGitHubImportModal: () => {
+    useInteractionLockStore.getState().activateLock();
     set({ isGitHubImportModalOpen: true });
     useGlobalUiStore.getState().closeSidebar();
   },
   closeGitHubImportModal: () => set({ isGitHubImportModalOpen: false }),
 
   openInjectedMessageEditModal: (target) => {
+    useInteractionLockStore.getState().activateLock();
     set({
       isInjectedMessageEditModalOpen: true,
       injectedMessageEditTarget: target,

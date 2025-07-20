@@ -234,8 +234,27 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({ message, canRegenera
   };
 
   const handleCopyMessageClick = async () => { await copyMessage(message.content); setIsOptionsMenuOpen(false); };
-  const handleMasterPlayButtonClick = () => { if (audio.isMainButtonMultiFetchingApi(message.id)) audio.handleCancelMultiPartFetch(message.id); else audio.handlePlayTextForMessage(displayContent, message.id, undefined); setIsOptionsMenuOpen(false); };
-  const handlePartPlayButtonClick = (partIndex: number) => { const uniqueSegmentId = `${message.id}_part_${partIndex}`; if (audio.isApiFetchingThisSegment(uniqueSegmentId)) audio.onCancelApiFetchThisSegment(uniqueSegmentId); else audio.handlePlayTextForMessage(displayContent, message.id, partIndex); setIsOptionsMenuOpen(false); };
+  const handleMasterPlayButtonClick = () => {
+    if (audio.audioPlayerState.isPlaying && audio.audioPlayerState.currentMessageId?.startsWith(message.id)) {
+      audio.togglePlayPause();
+    } else if (audio.isMainButtonMultiFetchingApi(message.id)) {
+      audio.handleCancelMultiPartFetch(message.id);
+    } else {
+      audio.handlePlayTextForMessage(displayContent, message.id, undefined);
+    }
+    setIsOptionsMenuOpen(false);
+  };
+  const handlePartPlayButtonClick = (partIndex: number) => {
+    const uniqueSegmentId = `${message.id}_part_${partIndex}`;
+    if (audio.audioPlayerState.currentMessageId === uniqueSegmentId && audio.audioPlayerState.isPlaying) {
+      audio.togglePlayPause();
+    } else if (audio.isApiFetchingThisSegment(uniqueSegmentId)) {
+      audio.onCancelApiFetchThisSegment(uniqueSegmentId);
+    } else {
+      audio.handlePlayTextForMessage(displayContent, message.id, partIndex);
+    }
+    setIsOptionsMenuOpen(false);
+  };
   const handleResetCacheClick = () => { if (!currentChatSession) return; modalStore.requestResetAudioCacheConfirmation(currentChatSession.id, message.id); setIsOptionsMenuOpen(false); };
   const handleReadModeClick = () => { onEnterReadMode(displayContent); setIsOptionsMenuOpen(false); };
 
@@ -311,7 +330,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({ message, canRegenera
                     {isOptionsMenuOpen && (<div ref={dropdownRef} className={`absolute aurora-panel ${dynamicDropdownClass} top-full mt-1.5 w-auto rounded-md shadow-lg z-30 p-1 flex space-x-1 focus:outline-none`} role="menu" aria-orientation="horizontal" aria-labelledby={`options-menu-button-${message.id}`}>
                         {(currentChatSession?.settings.showReadModeButton) && (<DropdownMenuItem onClick={handleReadModeClick} icon={BookOpenIcon} label="Read Mode" hoverGlowClassName="hover:shadow-[0_0_10px_1px_rgba(255,255,255,0.2)]"/>)}
                         <DropdownMenuItem onClick={handleCopyMessageClick} icon={ClipboardDocumentListIcon} label="Copy Text" hoverGlowClassName="hover:shadow-[0_0_10px_1px_rgba(255,255,255,0.2)]"/>
-                        {isModel && <DropdownMenuItem onClick={handleInjectPairClick} icon={ChatBubblePlusIcon} label="Insert User/AI Pair After" disabled={isAnyAudioOperationActiveForMessage || isLoading} hoverGlowClassName="hover:shadow-[0_0_10px_1px_rgba(255,255,255,0.2)]"/>}
+                        {(isUser || isModel) && <DropdownMenuItem onClick={handleInjectPairClick} icon={ChatBubblePlusIcon} label="Insert User/AI Pair After" disabled={isAnyAudioOperationActiveForMessage || isLoading} hoverGlowClassName="hover:shadow-[0_0_10px_1px_rgba(255,255,255,0.2)]"/>}
                         {message.content.trim() && !isError && allTtsPartsCached && (<DropdownMenuItem onClick={() => triggerAudioDownloadModal(message.id)} icon={ArrowDownTrayIcon} label={"Download Audio"} disabled={isAnyAudioOperationActiveForMessage} hoverGlowClassName="hover:shadow-[0_0_10px_1px_rgba(255,255,255,0.2)]"/>)}
                         {!isError && (isUser || isModel) && (<DropdownMenuItem onClick={handleEditClick} icon={PencilIcon} label="Edit Text" disabled={isAnyAudioOperationActiveForMessage} hoverGlowClassName="hover:shadow-[0_0_10px_1px_rgba(90,98,245,0.7)]"/>)}
                         {!isError && isModel && !message.characterName && (<DropdownMenuItem onClick={() => { handleRegenerateAIMessage(message.id); setIsOptionsMenuOpen(false); }} icon={ArrowPathIcon} label="Regenerate Just This" disabled={isAnyAudioOperationActiveForMessage} hoverGlowClassName="hover:shadow-[0_0_10px_1px_rgba(90,98,245,0.7)]"/>)}

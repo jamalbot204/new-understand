@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardRef, memo } from 'react';
 import { useModalStore } from '../store/useModalStore.ts';
 import { useGlobalUiStore } from '../store/useGlobalUiStore.ts';
@@ -6,7 +5,7 @@ import { useSelectionStore } from '../store/useSelectionStore.ts';
 import { ChatMessageRole, AICharacter } from '../types.ts';
 import MessageItem from './MessageItem.tsx';
 import { LOAD_MORE_MESSAGES_COUNT } from '../constants.ts';
-import { Bars3Icon, FlowRightIcon, StopIcon, PaperClipIcon, XCircleIcon, DocumentIcon, PlayCircleIcon, UsersIcon, PlusIcon, ArrowsUpDownIcon, CheckIcon, InfoIcon, CloudArrowUpIcon, ServerIcon, SendIcon, ClipboardDocumentCheckIcon } from './Icons.tsx';
+import { Bars3Icon, FlowRightIcon, StopIcon, XCircleIcon, UsersIcon, PlusIcon, ArrowsUpDownIcon, CheckIcon, InfoIcon, SendIcon, ClipboardDocumentCheckIcon } from './Icons.tsx';
 import AutoSendControls from './AutoSendControls.tsx';
 import ManualSaveButton from './ManualSaveButton.tsx';
 import { useAttachmentStore } from '../store/useAttachmentStore.ts';
@@ -20,6 +19,7 @@ import { useAutoSendStore } from '../store/useAutoSendStore.ts';
 import { useCharacterStore } from '../store/useCharacterStore.ts';
 import { useMessageStore } from '../store/useMessageStore.ts';
 import { useDataStore } from '../store/useDataStore.ts';
+import AttachmentControls from './AttachmentControls.tsx';
 
 interface ChatViewProps {
     onEnterReadMode: (content: string) => void;
@@ -35,16 +35,15 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
     const { currentChatSession } = useActiveChatStore();
     const { visibleMessages, totalMessagesInSession, canLoadMore, loadMoreMessages, loadAllMessages } = useMessageStore();
     
-    // Get state and actions from the new stores
-    const { isLoading, currentGenerationTimeDisplay } = useGeminiApiStore();
-    const { handleSendMessage, handleContinueFlow, handleCancelGeneration } = useGeminiApiStore.getState();
+    const { isLoading, currentGenerationTimeDisplay, handleSendMessage, handleContinueFlow, handleCancelGeneration } = useGeminiApiStore();
     const {
         isAutoSendingActive, autoSendText, setAutoSendText, autoSendRepetitionsInput,
         setAutoSendRepetitionsInput, autoSendRemaining, startAutoSend, stopAutoSend,
-        canStartAutoSend, isWaitingForErrorRetry, errorRetryCountdown
+        canStartAutoSend, isWaitingForErrorRetry, errorRetryCountdown,
+        decrementRemaining, setErrorRetry
     } = useAutoSendStore();
 
-    const { handleManualSave } = useDataStore();
+    const { handleManualSave, saveSingleSession } = useDataStore();
     const { reorderCharacters } = useCharacterStore();
     
     const { openCharacterManagementModal } = useModalStore();
@@ -54,7 +53,6 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
 
     const [inputMessage, setInputMessage] = useState('');
     const [expansionState, setExpansionState] = useState<Record<string, { content?: boolean; thoughts?: boolean }>>({});
-    const fileInputRef = useRef<HTMLInputElement>(null);
     const messagesEndRef = useRef<HTMLDivElement>(null);
     const messageListRef = useRef<HTMLDivElement>(null);
     const textareaRef = useAutoResizeTextarea<HTMLTextAreaElement>(inputMessage);
@@ -66,18 +64,13 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
     const draggedCharRef = useRef<AICharacter | null>(null);
     const characterButtonContainerRef = useRef<HTMLDivElement | null>(null);
     const [isInfoInputModeActive, setIsInfoInputModeActive] = useState(false);
+    const errorRetryIntervalRef = useRef<number | null>(null);
 
-    // Use the new attachment store
     const {
-        selectedFiles,
-        handleFileSelection,
-        handlePaste,
-        removeSelectedFile,
         getValidAttachmentsToSend,
         isAnyFileStillProcessing,
         resetSelectedFiles,
-        getFileProgressDisplay,
-        getDisplayFileType,
+        handlePaste,
     } = useAttachmentStore();
 
     const virtualizer = useVirtualizer({
@@ -142,12 +135,13 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
 
     const isPreparingAutoSend = autoSendText.trim() !== '' && parseInt(autoSendRepetitionsInput, 10) > 0 && !isAutoSendingActive;
 
-    const handleSendMessageClick = useCallback(async (characterId?: string) => {
-        const currentInputMessageValue = inputMessage;
+    const handleSendMessageClick = useCallback(async (characterId?: string, textOverride?: string) => {
+        const currentInputMessageValue = textOverride ?? inputMessage;
         const attachmentsToSend = getValidAttachmentsToSend();
         let temporaryContextFlag = false;
 
-        if (isLoading || !currentChatSession || isAutoSendingActive) return;
+        if (isLoading || !currentChatSession) return;
+        if (isAutoSendingActive && textOverride === undefined) return;
 
         if (isAnyFileStillProcessing()) {
             showToast("Some files are still being processed. Please wait.", "error");
@@ -155,23 +149,79 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
         }
 
         if (isCharacterMode && characterId) {
-            if (isPreparingAutoSend) {
-                startAutoSend(autoSendText, parseInt(autoSendRepetitionsInput, 10) || 1, characterId);
-                setInputMessage('');
-                resetSelectedFiles();
-                return;
-            }
             if (isInfoInputModeActive) { temporaryContextFlag = !!currentInputMessageValue.trim(); }
         } else if (!isCharacterMode) {
             if (currentInputMessageValue.trim() === '' && attachmentsToSend.length === 0) return;
         } else { return; }
 
-        setInputMessage('');
-        resetSelectedFiles();
+        if (textOverride === undefined) {
+            setInputMessage('');
+            resetSelectedFiles();
+        }
         if (isInfoInputModeActive && temporaryContextFlag) setIsInfoInputModeActive(false);
 
         await handleSendMessage(currentInputMessageValue, attachmentsToSend, undefined, characterId, temporaryContextFlag);
-    }, [inputMessage, getValidAttachmentsToSend, isLoading, currentChatSession, isAutoSendingActive, isAnyFileStillProcessing, showToast, isCharacterMode, isInfoInputModeActive, handleSendMessage, resetSelectedFiles, isPreparingAutoSend, startAutoSend, autoSendText, autoSendRepetitionsInput]);
+    }, [inputMessage, getValidAttachmentsToSend, isLoading, currentChatSession, isAutoSendingActive, isAnyFileStillProcessing, showToast, isCharacterMode, isInfoInputModeActive, handleSendMessage, resetSelectedFiles]);
+
+    const handleStartAutoSend = useCallback(async (text: string, repetitions: number, characterId?: string) => {
+        if (!canStartAutoSend() || isLoading) return;
+        
+        startAutoSend(text, repetitions);
+
+        let currentRepetitions = repetitions;
+        let isFirstMessage = true;
+
+        while (currentRepetitions > 0) {
+            const { isAutoSendingActive: isStillActive } = useAutoSendStore.getState();
+            if (!isStillActive) break;
+
+            if (!isFirstMessage) {
+                decrementRemaining();
+            }
+
+            try {
+                await handleSendMessageClick(characterId, text);
+                const { currentChatSession: updatedSession } = useActiveChatStore.getState();
+                if (updatedSession) {
+                    saveSingleSession(updatedSession);
+                    const lastMessage = updatedSession.messages[updatedSession.messages.length - 1];
+                    if (lastMessage?.role === ChatMessageRole.ERROR) {
+                        showToast("Auto-send stopped due to an error.", "error");
+                        stopAutoSend();
+                        break;
+                    }
+                }
+            } catch (error) {
+                console.error("Error during auto-send message:", error);
+                showToast("Auto-send stopped due to an unexpected error.", "error");
+                stopAutoSend();
+                break;
+            }
+            
+            isFirstMessage = false;
+            currentRepetitions--;
+
+            if (useAutoSendStore.getState().isAutoSendingActive && currentRepetitions > 0) {
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        }
+
+        // Final cleanup
+        if (useAutoSendStore.getState().isAutoSendingActive) {
+            stopAutoSend();
+        }
+
+    }, [canStartAutoSend, isLoading, startAutoSend, handleSendMessageClick, decrementRemaining, stopAutoSend, saveSingleSession, showToast]);
+
+    useEffect(() => {
+        // This useEffect is now only for cleaning up the error retry interval,
+        // the main loop logic has been moved to handleStartAutoSend.
+        return () => {
+            if (errorRetryIntervalRef.current) {
+                clearInterval(errorRetryIntervalRef.current);
+            }
+        };
+    }, []);
 
     const handleContinueFlowClick = useCallback(async () => {
         if (isLoading || !currentChatSession || currentChatSession.messages.length === 0 || isCharacterMode || isAutoSendingActive) return;
@@ -247,10 +297,19 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
     const handleDragEnd = useCallback((e: React.DragEvent<HTMLButtonElement>) => { if (!isReorderingActive) return; e.currentTarget.classList.remove('opacity-50', 'ring-2', 'ring-blue-500'); }, [isReorderingActive]);
     const toggleReordering = useCallback(() => setIsReorderingActive(prev => !prev), []);
     
-    const handleMainCancelButtonClick = useCallback(async () => {
-        if (isAutoSendingActive) await stopAutoSend();
-        else if (isLoading) handleCancelGeneration();
-    }, [isAutoSendingActive, stopAutoSend, isLoading, handleCancelGeneration]);
+    const handleMainCancelButtonClick = useCallback(() => {
+        if (isAutoSendingActive) {
+            stopAutoSend();
+        }
+        if (isLoading) {
+            handleCancelGeneration();
+        }
+        if (errorRetryIntervalRef.current) {
+            clearInterval(errorRetryIntervalRef.current);
+            errorRetryIntervalRef.current = null;
+            setErrorRetry(false);
+        }
+    }, [isAutoSendingActive, stopAutoSend, isLoading, handleCancelGeneration, setErrorRetry]);
 
     const amountToLoad = Math.min(LOAD_MORE_MESSAGES_COUNT, totalMessagesInSession - visibleMessages.length);
     const hasValidInputForMainSend = inputMessage.trim() !== '' || getValidAttachmentsToSend().length > 0;
@@ -307,27 +366,20 @@ const ChatView = memo(forwardRef<ChatViewHandles, ChatViewProps>(({
             </div>
             
             <div className="sticky bottom-0 z-20 bg-transparent flex flex-col">
-                {selectedFiles.length > 0 && (
-                    <div className="p-2 sm:p-3 border-t border-[var(--aurora-border)] bg-transparent">
-                        <div className="flex flex-wrap gap-3">
-                            {selectedFiles.map(file => (<div key={file.id} className="relative group p-2.5 aurora-panel rounded-lg shadow flex items-center w-full sm:w-auto sm:max-w-xs md:max-w-sm lg:max-w-md" style={{ minWidth: '200px' }}><div className="flex-shrink-0 w-10 h-10 bg-black/20 rounded-full flex items-center justify-center overflow-hidden mr-3">{(file.uploadState === 'reading_client' || (file.uploadState === 'uploading_to_cloud' && !file.progress) || file.uploadState === 'processing_on_server') && file.isLoading && !(file.dataUrl && (file.type === 'image' || file.type === 'video')) ? (file.uploadState === 'uploading_to_cloud' ? <CloudArrowUpIcon className="w-5 h-5 text-blue-400 animate-pulse" /> : file.uploadState === 'processing_on_server' ? <ServerIcon className="w-5 h-5 text-blue-400 animate-pulse" /> : <DocumentIcon className="w-5 h-5 text-gray-400 animate-pulse" />) : (file.uploadState === 'error_client_read' || file.uploadState === 'error_cloud_upload') && file.error ? (<DocumentIcon className="w-6 h-6 text-red-400" />) : file.dataUrl && file.mimeType.startsWith('image/') && file.type === 'image' ? (<img src={file.dataUrl} alt={file.name} className="w-full h-full object-cover" />) : file.dataUrl && file.mimeType.startsWith('video/') && file.type === 'video' ? (<PlayCircleIcon className="w-6 h-6 text-gray-300" />) : (<DocumentIcon className="w-6 h-6 text-gray-300" />)}</div><div className="flex-grow flex flex-col min-w-0 mr-2"><p className="text-sm font-medium text-gray-200 truncate" title={file.name}>{getDisplayFileType(file)}</p><p className="text-xs text-gray-400 truncate" title={file.statusMessage || getFileProgressDisplay(file)}>{getFileProgressDisplay(file)}</p>{(file.uploadState === 'uploading_to_cloud' && file.progress !== undefined && file.progress > 0) && (<div className="w-full bg-black/20 rounded-full h-1 mt-1"><div className="bg-blue-500 h-1 rounded-full transition-all duration-150 ease-linear" style={{ width: `${file.progress || 0}%` }}></div></div>)}</div><button onClick={() => removeSelectedFile(file.id)} className="flex-shrink-0 p-1 bg-black/20 text-gray-300 hover:text-white rounded-full transition-shadow hover:shadow-[0_0_10px_1px_rgba(239,68,68,0.7)]" title="Remove file" aria-label="Remove file"><XCircleIcon className="w-5 h-5" /></button></div>))}
-                        </div>
-                    </div>
-                )}
+                <AttachmentControls />
                 {isCharacterMode && characters.length > 0 && (
                     <div ref={characterButtonContainerRef} className="p-2 sm:p-3 border-t border-[var(--aurora-border)] bg-transparent" onDragOver={handleDragOver} onDrop={handleDrop}>
                         <p className="text-xs text-gray-400 mb-2">{isReorderingActive ? "Drag to reorder characters, then click 'Done'." : (isInfoInputModeActive ? "Input is for one-time info. Select character to speak:" : (isPreparingAutoSend ? "Auto-send ready. Select character to start:" : "Select a character to speak (can be empty input):"))}</p>
                         <div className="flex flex-wrap gap-2">
-                            {characters.map((char) => (<button key={char.id} data-char-id={char.id} onClick={() => !isReorderingActive && handleSendMessageClick(char.id)} disabled={!currentChatSession || isAnyFileStillProcessing() || isAutoSendingActive || (isReorderingActive && !!draggedCharRef.current && draggedCharRef.current.id === char.id)} draggable={isReorderingActive} onDragStart={(e) => handleDragStart(e, char)} onDragEnd={handleDragEnd} className={`px-3 py-1.5 text-sm bg-[var(--aurora-accent-secondary)] text-white rounded-md disabled:opacity-50 transition-all duration-150 ease-in-out hover:shadow-[0_0_12px_2px_rgba(156,51,245,0.6)] ${isReorderingActive ? 'cursor-grab hover:ring-2 hover:ring-purple-400' : 'disabled:cursor-not-allowed'} ${draggedCharRef.current?.id === char.id ? 'opacity-50 ring-2 ring-blue-500' : ''} ${(isPreparingAutoSend && !isAutoSendingActive && !isLoading) ? 'ring-2 ring-green-500 hover:ring-green-400' : ''}`} title={isReorderingActive ? `Drag to reorder ${char.name}` : (isPreparingAutoSend && !isAutoSendingActive && !isLoading ? `Start auto-sending as ${char.name}` : `Speak as ${char.name}`)}>{char.name}</button>))}
+                            {characters.map((char) => (<button key={char.id} data-char-id={char.id} onClick={() => !isReorderingActive && (isPreparingAutoSend ? handleStartAutoSend(autoSendText, parseInt(autoSendRepetitionsInput, 10) || 1, char.id) : handleSendMessageClick(char.id))} disabled={!currentChatSession || isAnyFileStillProcessing() || (isAutoSendingActive && !isPreparingAutoSend) || (isReorderingActive && !!draggedCharRef.current && draggedCharRef.current.id === char.id)} draggable={isReorderingActive} onDragStart={(e) => handleDragStart(e, char)} onDragEnd={handleDragEnd} className={`px-3 py-1.5 text-sm bg-[var(--aurora-accent-secondary)] text-white rounded-md disabled:opacity-50 transition-all duration-150 ease-in-out hover:shadow-[0_0_12px_2px_rgba(156,51,245,0.6)] ${isReorderingActive ? 'cursor-grab hover:ring-2 hover:ring-purple-400' : 'disabled:cursor-not-allowed'} ${draggedCharRef.current?.id === char.id ? 'opacity-50 ring-2 ring-blue-500' : ''} ${(isPreparingAutoSend && !isAutoSendingActive && !isLoading) ? 'ring-2 ring-green-500 hover:ring-green-400' : ''}`} title={isReorderingActive ? `Drag to reorder ${char.name}` : (isPreparingAutoSend && !isAutoSendingActive && !isLoading ? `Start auto-sending as ${char.name}` : `Speak as ${char.name}`)}>{char.name}</button>))}
                         </div>
                     </div>
                 )}
-                {(currentChatSession?.settings?.showAutoSendControls) && (<AutoSendControls isAutoSendingActive={isAutoSendingActive} autoSendText={autoSendText} setAutoSendText={setAutoSendText} autoSendRepetitionsInput={autoSendRepetitionsInput} setAutoSendRepetitionsInput={setAutoSendRepetitionsInput} autoSendRemaining={autoSendRemaining} onStartAutoSend={() => { if (!isCharacterMode && canStartAutoSend() && !isAutoSendingActive && !isLoading) { startAutoSend(autoSendText, parseInt(autoSendRepetitionsInput, 10) || 1); } }} onStopAutoSend={stopAutoSend} canStart={canStartAutoSend()} isChatViewLoading={isLoading} currentChatSessionExists={!!currentChatSession} isCharacterMode={isCharacterMode} isPreparingAutoSend={isPreparingAutoSend} isWaitingForErrorRetry={isWaitingForErrorRetry} errorRetryCountdown={errorRetryCountdown} />)}
+                {(currentChatSession?.settings?.showAutoSendControls) && (<AutoSendControls isAutoSendingActive={isAutoSendingActive} autoSendText={autoSendText} setAutoSendText={setAutoSendText} autoSendRepetitionsInput={autoSendRepetitionsInput} setAutoSendRepetitionsInput={setAutoSendRepetitionsInput} autoSendRemaining={autoSendRemaining} onStartAutoSend={() => handleStartAutoSend(autoSendText, parseInt(autoSendRepetitionsInput, 10) || 1)} onStopAutoSend={handleMainCancelButtonClick} canStart={canStartAutoSend()} isChatViewLoading={isLoading} currentChatSessionExists={!!currentChatSession} isCharacterMode={isCharacterMode} isPreparingAutoSend={isPreparingAutoSend} isWaitingForErrorRetry={isWaitingForErrorRetry} errorRetryCountdown={errorRetryCountdown} />)}
                 <div className="p-3 sm:p-4 border-t border-[var(--aurora-border)] bg-transparent">
                     {isLoading && <p className="text-xs text-center text-blue-400 mb-2 animate-pulse">{loadingMessageText}</p>}
                     <div className="flex items-end aurora-panel rounded-lg p-1 focus-within:ring-2 focus-within:ring-[var(--aurora-accent-primary)] transition-shadow">
-                        <input type="file" multiple ref={fileInputRef} onChange={(e) => handleFileSelection(e.target.files, isInfoInputModeActive)} className="hidden" accept="image/*,video/*,.pdf,text/*,application/json" />
-                        <button onClick={() => fileInputRef.current?.click()} disabled={!currentChatSession || isInfoInputModeActive || isAutoSendingActive || isSelectionModeActive} className="p-2.5 sm:p-3 m-1 text-gray-300 hover:text-white rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)] focus:outline-none" title="Attach files" aria-label="Attach files"><PaperClipIcon className="w-5 h-5" /></button>
+                        <AttachmentControls renderButtonOnly isInfoInputModeActive={isInfoInputModeActive} />
                         {isCharacterMode && (<button onClick={toggleInfoInputMode} disabled={isLoading || !currentChatSession || isAutoSendingActive || isSelectionModeActive} className={`p-2.5 sm:p-3 m-1 text-gray-300 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow focus:outline-none ${isInfoInputModeActive ? 'bg-yellow-500/20 text-yellow-300 hover:shadow-[0_0_12px_2px_rgba(234,179,8,0.6)]' : 'hover:text-white hover:shadow-[0_0_12px_2px_rgba(255,255,255,0.2)]'}`} title={isInfoInputModeActive ? "Disable One-Time Info Input" : "Enable One-Time Info Input"} aria-label={isInfoInputModeActive ? "Disable One-Time Info Input" : "Enable One-Time Info Input"} aria-pressed={isInfoInputModeActive}><InfoIcon className="w-5 h-5" /></button>)}
                         <textarea ref={textareaRef} rows={1} className="flex-grow p-2.5 sm:p-3 bg-transparent text-gray-200 focus:outline-none resize-none placeholder-gray-400 hide-scrollbar" placeholder={placeholderText} value={inputMessage} onChange={handleInputChange} onKeyPress={handleKeyPress} onPaste={(e) => handlePaste(e, isInfoInputModeActive)} disabled={!currentChatSession || isAutoSendingActive || isSelectionModeActive} aria-label="Chat input" />
                         {!isCharacterMode && (<button onClick={handleContinueFlowClick} disabled={isLoading || !currentChatSession || (currentChatSession && currentChatSession.messages.length === 0) || isAnyFileStillProcessing() || isCharacterMode || isAutoSendingActive || isSelectionModeActive} className="p-2.5 sm:p-3 m-1 text-white bg-teal-600/50 rounded-md disabled:opacity-50 disabled:cursor-not-allowed transition-shadow hover:shadow-[0_0_12px_2px_rgba(13,148,136,0.6)] focus:outline-none" title="Continue Flow" aria-label="Continue flow"><FlowRightIcon className="w-5 h-5" /></button>)}

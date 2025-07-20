@@ -5,11 +5,12 @@ import { useEffect, useRef } from 'react';
 import { useDataStore } from '../store/useDataStore.ts';
 import { useActiveChatStore } from '../store/useActiveChatStore.ts';
 import { useChatListStore } from '../store/useChatListStore.ts';
+import { DatabaseWorkerService } from '../services/DatabaseWorkerService.ts';
 
-const AUTOSAVE_DEBOUNCE_MS = 2500; // 2.5 seconds
+const AUTOSAVE_DEBOUNCE_MS = 5000; // 2.5 seconds
 
 export const DataStoreBridge = () => {
-  const { init, handleManualSave } = useDataStore.getState();
+  const { init } = useDataStore.getState();
   const { currentChatSession } = useActiveChatStore();
   const isLoadingData = useChatListStore(state => state.isLoadingData);
   const debounceTimeoutRef = useRef<number | null>(null);
@@ -33,11 +34,9 @@ export const DataStoreBridge = () => {
 
     // Set a new timeout to save the state after a period of inactivity.
     debounceTimeoutRef.current = window.setTimeout(() => {
+      if (!currentChatSession) return; // Guard against session being nullified during timeout
       // Pass `true` for a silent save (no success/error toasts for background saves).
-      handleManualSave(true).catch(err => {
-        // Error is already logged inside handleManualSave, this catch prevents unhandled rejections.
-        console.error("Auto-save promise was rejected:", err);
-      });
+      DatabaseWorkerService.saveSession(currentChatSession);
     }, AUTOSAVE_DEBOUNCE_MS);
 
     // Cleanup function to clear the timeout on component unmount or before the effect re-runs.
@@ -46,7 +45,7 @@ export const DataStoreBridge = () => {
         clearTimeout(debounceTimeoutRef.current);
       }
     };
-  }, [currentChatSession, isLoadingData, handleManualSave]); // Re-run effect when session data or loading state changes.
+  }, [currentChatSession, isLoadingData]); // Re-run effect when session data or loading state changes.
 
 
   return null; // This component renders nothing.

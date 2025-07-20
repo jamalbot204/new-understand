@@ -24,6 +24,7 @@ interface DataStoreState {
   setCurrentExportConfig: (newConfig: ExportConfiguration) => Promise<void>;
   setMessageGenerationTimes: (updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => Promise<void>;
   handleManualSave: (isSilent?: boolean) => Promise<void>;
+  saveSingleSession: (session: ChatSession) => Promise<void>;
   
   // Import/Export Actions
   handleExportChats: (chatIdsToExport: string[], exportConfig: ExportConfiguration) => Promise<void>;
@@ -251,6 +252,17 @@ export const useDataStore = create<DataStoreState>((set, get) => ({
         chatToDelete.messages.forEach(msg => delete newGenTimes[msg.id]);
         set({ messageGenerationTimes: newGenTimes });
         await dbService.setAppMetadata(METADATA_KEYS.MESSAGE_GENERATION_TIMES, newGenTimes);
+    }
+  },
+
+  saveSingleSession: async (session) => {
+    try {
+      await dbService.addOrUpdateChatSession(session);
+    } catch (error) {
+      console.error("Failed to save single session:", error);
+      // Do not show a toast for this background operation.
+      // Re-throw to allow callers to handle if necessary, though in our case it's fire-and-forget.
+      throw error;
     }
   },
 

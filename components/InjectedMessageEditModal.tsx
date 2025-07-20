@@ -4,6 +4,9 @@ import { useActiveChatStore } from '../store/useActiveChatStore';
 import { useGeminiApiStore } from '../store/useGeminiApiStore';
 import useAutoResizeTextarea from '../hooks/useAutoResizeTextarea';
 import { XCircleIcon, ArrowPathIcon } from './Icons';
+import AttachmentControls from './AttachmentControls.tsx';
+import { useAttachmentStore } from '../store/useAttachmentStore.ts';
+import { useToastStore } from '../store/useToastStore.ts';
 
 const InjectedMessageEditModal: React.FC = () => {
   const { 
@@ -19,6 +22,9 @@ const InjectedMessageEditModal: React.FC = () => {
   const [inputValue, setInputValue] = useState('');
   const textareaRef = useAutoResizeTextarea<HTMLTextAreaElement>(inputValue);
 
+  const { getValidAttachmentsToSend, isAnyFileStillProcessing, resetSelectedFiles } = useAttachmentStore();
+  const { showToast } = useToastStore();
+
   const originalMessage = currentChatSession?.messages.find(m => m.id === injectedMessageEditTarget?.messageId);
 
   useEffect(() => {
@@ -30,6 +36,13 @@ const InjectedMessageEditModal: React.FC = () => {
   const handleSaveAndRegenerate = useCallback(async () => {
     if (!injectedMessageEditTarget || !originalMessage) return;
 
+    if (isAnyFileStillProcessing()) {
+      showToast("Files are still processing. Please wait.", "error");
+      return;
+    }
+
+    const attachments = getValidAttachmentsToSend();
+
     // 1. Update the user message content
     await updateCurrentChatSession(session => {
       if (!session) return null;
@@ -40,6 +53,7 @@ const InjectedMessageEditModal: React.FC = () => {
       updatedMessages[messageIndex] = {
         ...updatedMessages[messageIndex],
         content: inputValue,
+        attachments: attachments,
       };
       return { ...session, messages: updatedMessages };
     });
@@ -47,9 +61,12 @@ const InjectedMessageEditModal: React.FC = () => {
     // 2. Trigger regeneration for this user message
     handleRegenerateResponseForUserMessage(injectedMessageEditTarget.messageId);
 
-    // 3. Close the modal
+    // 3. Crucial Cleanup
+    resetSelectedFiles();
+
+    // 4. Close the modal
     closeInjectedMessageEditModal();
-  }, [injectedMessageEditTarget, inputValue, originalMessage, updateCurrentChatSession, handleRegenerateResponseForUserMessage, closeInjectedMessageEditModal]);
+  }, [injectedMessageEditTarget, inputValue, originalMessage, updateCurrentChatSession, handleRegenerateResponseForUserMessage, closeInjectedMessageEditModal, getValidAttachmentsToSend, isAnyFileStillProcessing, resetSelectedFiles, showToast]);
 
   const handleKeyPress = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -59,8 +76,7 @@ const InjectedMessageEditModal: React.FC = () => {
   };
   
   const handleClose = () => {
-    // If user closes without saving, and the message is still empty,
-    // we can leave it as is. The user can edit it later via the normal "Edit" button.
+    resetSelectedFiles();
     closeInjectedMessageEditModal();
   };
 
@@ -101,23 +117,29 @@ const InjectedMessageEditModal: React.FC = () => {
             placeholder="Type the user's message here..."
             aria-label="User message text"
           />
+          <AttachmentControls />
         </main>
 
-        <footer className="flex justify-end items-center p-4 border-t border-[var(--aurora-border)] space-x-3">
-          <button 
-            onClick={handleClose}
-            className="px-5 py-2.5 text-sm font-medium text-gray-300 bg-white/5 rounded-md hover:bg-white/10 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSaveAndRegenerate}
-            disabled={isLoading || inputValue.trim() === ''}
-            className="px-5 py-2.5 text-sm font-medium text-white bg-[var(--aurora-accent-primary)] rounded-md transition-all hover:shadow-[0_0_12px_2px_rgba(90,98,245,0.6)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
-          >
-            <ArrowPathIcon className="w-5 h-5 mr-2" />
-            {isLoading ? 'Regenerating...' : 'Regenerate AI Response'}
-          </button>
+        <footer className="flex justify-between items-center p-4 border-t border-[var(--aurora-border)]">
+          <div>
+            <AttachmentControls renderButtonOnly={true} />
+          </div>
+          <div className="flex items-center space-x-3">
+            <button 
+              onClick={handleClose}
+              className="px-5 py-2.5 text-sm font-medium text-gray-300 bg-white/5 rounded-md hover:bg-white/10 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSaveAndRegenerate}
+              disabled={isLoading || inputValue.trim() === ''}
+              className="px-5 py-2.5 text-sm font-medium text-white bg-[var(--aurora-accent-primary)] rounded-md transition-all hover:shadow-[0_0_12px_2px_rgba(90,98,245,0.6)] disabled:opacity-50 disabled:cursor-not-allowed flex items-center"
+            >
+              <ArrowPathIcon className="w-5 h-5 mr-2" />
+              {isLoading ? 'Regenerating...' : 'Regenerate AI Response'}
+            </button>
+          </div>
         </footer>
       </div>
     </div>

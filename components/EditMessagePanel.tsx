@@ -6,6 +6,7 @@ import { ChatMessageRole, Attachment } from '../types.ts';
 import { CloseIcon, SparklesIcon, UserIcon, SaveDiskIcon, XCircleIcon, SubmitPlayIcon, ContinueArrowIcon } from './Icons.tsx';
 import useAutoResizeTextarea from '../hooks/useAutoResizeTextarea.ts';
 import { useGeminiApiStore } from '../store/useGeminiApiStore.ts'; // Import new store
+import { useInteractionLockStore } from '../store/useInteractionLockStore.ts';
 
 export enum EditMessagePanelAction {
   CANCEL = 'cancel',
@@ -23,6 +24,7 @@ export interface EditMessagePanelDetails {
 }
 
 const EditMessagePanel: React.FC = memo(() => {
+  const isInteractionLocked = useInteractionLockStore(s => s.isLocked);
   const { handleEditPanelSubmit, handleCancelGeneration } = useGeminiApiStore.getState(); // Get action from store
   const isLoading = useGeminiApiStore(s => s.isLoading); // Get state from store
   const { isEditPanelOpen, editingMessageDetail, closeEditPanel } = useModalStore();
@@ -43,17 +45,18 @@ const EditMessagePanel: React.FC = memo(() => {
   }, [isEditPanelOpen, textareaRef]);
 
   const handleAction = useCallback((action: EditMessagePanelAction) => {
-    if (!editingMessageDetail) return;
+    if (isInteractionLocked || !editingMessageDetail) return;
     closeEditPanel();
     handleEditPanelSubmit(action, editedContent, editingMessageDetail as any);
-  }, [editingMessageDetail, handleEditPanelSubmit, editedContent, closeEditPanel]);
+  }, [isInteractionLocked, editingMessageDetail, handleEditPanelSubmit, editedContent, closeEditPanel]);
   
   const handleCancelClick = useCallback(() => {
+    if (isInteractionLocked) return;
     if (editingMessageDetail && isLoading && editingMessageDetail.role === ChatMessageRole.MODEL) {
       handleCancelGeneration();
     }
     closeEditPanel();
-  }, [isLoading, editingMessageDetail, handleCancelGeneration, closeEditPanel]);
+  }, [isInteractionLocked, isLoading, editingMessageDetail, handleCancelGeneration, closeEditPanel]);
 
   if (!isEditPanelOpen || !editingMessageDetail) return null;
   
