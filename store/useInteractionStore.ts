@@ -1,5 +1,3 @@
-
-
 import { create } from 'zustand';
 import { useActiveChatStore } from './useActiveChatStore';
 import { useDataStore } from './useDataStore';
@@ -11,6 +9,7 @@ import { useAudioStore } from './useAudioStore';
 import { uploadFileViaApi, deleteFileViaApi } from '../services/geminiService';
 import { Attachment } from '../types';
 import { useGeminiApiStore } from './useGeminiApiStore';
+import * as dbService from '../services/dbService.ts';
 
 // Helper function from the old hook
 function base64StringToFile(base64String: string, filename: string, mimeType: string): File {
@@ -56,10 +55,17 @@ export const useInteractionStore = create<InteractionActions>(() => ({
   deleteSingleMessage: async (messageId) => {
     const { handleStopAndCancelAllForCurrentAudio } = useAudioStore.getState();
     const { updateCurrentChatSession, currentChatSession } = useActiveChatStore.getState();
-    const { setMessageGenerationTimes } = useDataStore.getState();
+    const { setMessageGenerationTimes, updateMessages } = useDataStore.getState();
+    const messageToDelete = currentChatSession?.messages.find(m => m.id === messageId);
 
-    if (currentChatSession?.messages.find(m => m.id === messageId)?.cachedAudioBuffers) {
+    if (messageToDelete?.cachedAudioSegmentCount) {
         handleStopAndCancelAllForCurrentAudio();
+        // Asynchronously delete audio from DB
+        const deletePromises: Promise<void>[] = [];
+        for (let i = 0; i < messageToDelete.cachedAudioSegmentCount; i++) {
+            deletePromises.push(dbService.deleteAudioBuffer(`${messageToDelete.id}_part_${i}`));
+        }
+        await Promise.all(deletePromises).catch(console.error);
     }
 
     await updateCurrentChatSession((session) => {
@@ -74,44 +80,83 @@ export const useInteractionStore = create<InteractionActions>(() => ({
 
       return { ...session, messages: newMessages };
     });
+
+    const updatedSession = useActiveChatStore.getState().currentChatSession;
+    if (updatedSession) {
+        await updateMessages(updatedSession.id, updatedSession.messages);
+    }
+
     useToastStore.getState().showToast("Message deleted.", "success");
   },
 
   deleteMessageAndSubsequent: async (messageId) => {
     const { handleStopAndCancelAllForCurrentAudio } = useAudioStore.getState();
     const { updateCurrentChatSession, currentChatSession } = useActiveChatStore.getState();
-    const { setMessageGenerationTimes } = useDataStore.getState();
+    const { setMessageGenerationTimes, updateMessages } = useDataStore.getState();
+    
+    const messageIndex = currentChatSession?.messages.findIndex(m => m.id === messageId) ?? -1;
+    if (messageIndex === -1 || !currentChatSession) return;
+    
+    const messagesToDelete = currentChatSession.messages.slice(messageIndex);
 
-    if (currentChatSession?.messages.find(m => m.id === messageId)?.cachedAudioBuffers) {
+    // Stop audio if any of the deleted messages are playing
+    if (messagesToDelete.some(m => m.cachedAudioSegmentCount)) {
         handleStopAndCancelAllForCurrentAudio();
     }
+    
+    // Asynchronously delete all associated audio files
+    const deletePromises: Promise<void>[] = [];
+    messagesToDelete.forEach(msg => {
+        if (msg.cachedAudioSegmentCount && msg.cachedAudioSegmentCount > 0) {
+            for (let i = 0; i < msg.cachedAudioSegmentCount; i++) {
+                deletePromises.push(dbService.deleteAudioBuffer(`${msg.id}_part_${i}`));
+            }
+        }
+    });
+    await Promise.all(deletePromises).catch(console.error);
 
     await updateCurrentChatSession((session) => {
       if (!session) return null;
-      const messageIndex = session.messages.findIndex(m => m.id === messageId);
-      if (messageIndex === -1) return session;
       const newMessages = session.messages.slice(0, messageIndex);
       
       setMessageGenerationTimes(prevTimes => {
         const newTimesState = { ...prevTimes };
-        session.messages.slice(messageIndex).forEach(msg => delete newTimesState[msg.id]);
+        messagesToDelete.forEach(msg => delete newTimesState[msg.id]);
         return newTimesState;
       }).catch(console.error);
 
       return { ...session, messages: newMessages };
     });
+    
+    const updatedSession = useActiveChatStore.getState().currentChatSession;
+    if (updatedSession) {
+        await updateMessages(updatedSession.id, updatedSession.messages);
+    }
   },
 
   deleteMultipleMessages: async (messageIds) => {
-    const { updateCurrentChatSession } = useActiveChatStore.getState();
-    const { setMessageGenerationTimes } = useDataStore.getState();
+    const { updateCurrentChatSession, currentChatSession } = useActiveChatStore.getState();
+    const { setMessageGenerationTimes, updateMessages } = useDataStore.getState();
     const { toggleSelectionMode } = useSelectionStore.getState();
 
-    if (messageIds.length === 0) return;
+    if (messageIds.length === 0 || !currentChatSession) return;
 
+    const idSet = new Set(messageIds);
+    const messagesToDelete = currentChatSession.messages.filter(m => idSet.has(m.id));
+
+    // Asynchronously delete audio
+    const deletePromises: Promise<void>[] = [];
+    messagesToDelete.forEach(msg => {
+        if (msg.cachedAudioSegmentCount && msg.cachedAudioSegmentCount > 0) {
+            for (let i = 0; i < msg.cachedAudioSegmentCount; i++) {
+                deletePromises.push(dbService.deleteAudioBuffer(`${msg.id}_part_${i}`));
+            }
+        }
+    });
+    await Promise.all(deletePromises).catch(console.error);
+    
     await updateCurrentChatSession(session => {
       if (!session) return null;
-      const idSet = new Set(messageIds);
       const newMessages = session.messages.filter(m => !idSet.has(m.id));
       
       setMessageGenerationTimes(prevTimes => {
@@ -122,6 +167,11 @@ export const useInteractionStore = create<InteractionActions>(() => ({
       
       return { ...session, messages: newMessages };
     });
+
+    const updatedSession = useActiveChatStore.getState().currentChatSession;
+    if (updatedSession) {
+        await updateMessages(updatedSession.id, updatedSession.messages);
+    }
 
     useToastStore.getState().showToast(`${messageIds.length} message(s) deleted.`, "success");
     toggleSelectionMode();
@@ -148,14 +198,39 @@ export const useInteractionStore = create<InteractionActions>(() => ({
   
   resetAudioCache: async (messageId) => {
     const { updateCurrentChatSession, currentChatSession } = useActiveChatStore.getState();
+    const { updateMessages } = useDataStore.getState();
+    if (!currentChatSession) return;
+
+    const message = currentChatSession.messages.find(m => m.id === messageId);
+    if (!message || !message.cachedAudioSegmentCount || message.cachedAudioSegmentCount === 0) {
+        useToastStore.getState().showToast("No audio cache to reset.", "success");
+        return;
+    }
+
+    const segmentCount = message.cachedAudioSegmentCount;
+
+    // Delete audio from DB
+    const deletePromises: Promise<void>[] = [];
+    for (let i = 0; i < segmentCount; i++) {
+        deletePromises.push(dbService.deleteAudioBuffer(`${messageId}_part_${i}`));
+    }
+    await Promise.all(deletePromises);
+
+    // Update state
     await updateCurrentChatSession(session => {
-      if (!session || session.id !== currentChatSession?.id) return null;
+      if (!session) return null;
       const messageIndex = session.messages.findIndex(m => m.id === messageId);
       if (messageIndex === -1) return session;
       const updatedMessages = [...session.messages];
-      updatedMessages[messageIndex] = { ...updatedMessages[messageIndex], cachedAudioBuffers: null };
+      const { cachedAudioBuffers, cachedAudioSegmentCount, ttsWordsPerSegmentCache, ...restOfMessage } = updatedMessages[messageIndex];
+      updatedMessages[messageIndex] = restOfMessage as any;
       return { ...session, messages: updatedMessages };
     });
+
+    const updatedSession = useActiveChatStore.getState().currentChatSession;
+    if(updatedSession) {
+        await updateMessages(updatedSession.id, updatedSession.messages);
+    }
     useToastStore.getState().showToast("Audio cache reset for message.", "success");
   },
 
@@ -164,6 +239,7 @@ export const useInteractionStore = create<InteractionActions>(() => ({
     const { activeApiKey } = useApiKeyStore.getState();
     const logApiRequest = useGeminiApiStore.getState().logApiRequest;
     const showToast = useToastStore.getState().showToast;
+    const { updateMessages } = useDataStore.getState();
     
     if (!currentChatSession || !activeApiKey?.value) return;
 
@@ -221,6 +297,12 @@ export const useInteractionStore = create<InteractionActions>(() => ({
         updatedMessages[messageIndex] = { ...updatedMessages[messageIndex], attachments: updatedAttachments };
         return { ...session, messages: updatedMessages };
       });
+      
+      const sessionAfterSuccess = useActiveChatStore.getState().currentChatSession;
+      if (sessionAfterSuccess) {
+          await updateMessages(sessionAfterSuccess.id, sessionAfterSuccess.messages);
+      }
+
       showToast("File URL refreshed successfully!", "success");
 
     } catch (error: any) {

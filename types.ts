@@ -1,5 +1,3 @@
-
-
 // Fix: Removed incorrect import of 'ChatSession as GeminiChatSessionSDK'
 import React from 'react';
 import { Content, Part as GeminiPart, SafetySetting as GeminiSafetySettingSDK, Tool } from "@google/genai";
@@ -65,7 +63,9 @@ export interface ChatMessage {
     groundingChunks?: GroundingChunk[];
   };
   characterName?: string; 
-  cachedAudioBuffers?: (ArrayBuffer | null)[] | null; // Updated for multi-part TTS
+  cachedAudioBuffers?: (ArrayBuffer | null)[] | null; // RETAINED for runtime UI state, but not persisted in session store
+  cachedAudioSegmentCount?: number; // ADDED: Persisted metadata indicating audio exists in the audioCache DB store
+  ttsWordsPerSegmentCache?: number; // Stores the maxWordsPerSegment value used when this message's audio was cached.
   // Field for exported audio, not used at runtime directly in ChatMessage objects
   // but helps type-checking during import/export transformation
   exportedMessageAudioBase64?: (string | null)[]; 
@@ -259,7 +259,7 @@ export interface UseGeminiReturn {
   handleCancelGeneration: () => Promise<void>;
   handleRegenerateAIMessage: (sessionId: string, aiMessageIdToRegenerate: string) => Promise<void>;
   handleRegenerateResponseForUserMessage: (sessionId: string, userMessageId: string) => Promise<void>;
-  handleEditPanelSubmit: (action: EditMessagePanelAction, newContent: string, editingMessageDetail: EditMessagePanelDetails) => Promise<void>;
+  handleEditPanelSubmit: (action: EditMessagePanelAction, newContent: string, editingMessageDetail: EditMessagePanelDetails, newAttachments?: Attachment[]) => Promise<void>;
 }
 
 export interface GeminiFileResource {
@@ -276,7 +276,7 @@ export interface GeminiFileResource {
     error?: { code: number; message: string; details: any[] }; 
 }
 
-export type UseAudioPlayerCacheCallback = (uniqueSegmentId: string, audioBuffer: ArrayBuffer) => Promise<void>;
+export type UseAudioPlayerCacheCallback = (uniqueSegmentId: string, audioBuffer: ArrayBuffer, totalSegments: number) => Promise<void>;
 
 export interface MessageItemProps {
   message: ChatMessage;

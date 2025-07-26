@@ -3,6 +3,7 @@ import { useActiveChatStore } from './useActiveChatStore';
 import { useToastStore } from './useToastStore';
 import { useModalStore } from './useModalStore';
 import { ChatMessage, ChatMessageRole } from '../types';
+import { useDataStore } from './useDataStore';
 
 interface GithubState {
   isLoading: boolean;
@@ -21,6 +22,7 @@ export const useGithubStore = create<GithubState & GithubActions>((set) => ({
     const { currentChatSession, updateCurrentChatSession } = useActiveChatStore.getState();
     const showToast = useToastStore.getState().showToast;
     const { closeGitHubImportModal } = useModalStore.getState();
+    const { updateGithubContext, updateMessages } = useDataStore.getState();
 
     if (!currentChatSession) {
       showToast("No active chat session.", "error");
@@ -40,6 +42,13 @@ export const useGithubStore = create<GithubState & GithubActions>((set) => ({
           timestamp: new Date()
         }]
       }) : null);
+      
+      const updatedSession = useActiveChatStore.getState().currentChatSession;
+      if (updatedSession) {
+          await updateGithubContext(updatedSession.id, updatedSession.githubRepoContext);
+          await updateMessages(updatedSession.id, updatedSession.messages);
+      }
+      
       showToast("GitHub repository context removed.", "success");
       set({ isLoading: false });
       return;
@@ -56,6 +65,11 @@ export const useGithubStore = create<GithubState & GithubActions>((set) => ({
       ...session,
       messages: [...session.messages, processingMessage]
     }) : null);
+    
+    let updatedSessionAfterProcessingMessage = useActiveChatStore.getState().currentChatSession;
+    if (updatedSessionAfterProcessingMessage) {
+        await updateMessages(updatedSessionAfterProcessingMessage.id, updatedSessionAfterProcessingMessage.messages);
+    }
 
     try {
       const cleanUrlString = url.endsWith('.git') ? url.slice(0, -4) : url;
@@ -111,6 +125,13 @@ export const useGithubStore = create<GithubState & GithubActions>((set) => ({
         githubRepoContext: { url: cleanUrlString, contextText: contextBuilder },
         messages: [...session.messages.filter(m => m.id !== processingMessage.id), finalContextMessage]
       }) : null);
+      
+      const sessionAfterSuccess = useActiveChatStore.getState().currentChatSession;
+      if (sessionAfterSuccess) {
+          await updateGithubContext(sessionAfterSuccess.id, sessionAfterSuccess.githubRepoContext);
+          await updateMessages(sessionAfterSuccess.id, sessionAfterSuccess.messages);
+      }
+      
       showToast("GitHub repository context loaded!", "success");
       set({ isLoading: false });
 
@@ -129,6 +150,12 @@ export const useGithubStore = create<GithubState & GithubActions>((set) => ({
         ...session,
         messages: [...session.messages.filter(m => m.id !== processingMessage.id), errorSystemMessage]
       }) : null);
+      
+      const sessionAfterError = useActiveChatStore.getState().currentChatSession;
+      if (sessionAfterError) {
+          await updateMessages(sessionAfterError.id, sessionAfterError.messages);
+      }
+      
       showToast(errorMessage, "error");
     }
   },

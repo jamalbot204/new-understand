@@ -1,10 +1,20 @@
-import { ChatSession } from '../types.ts'; 
+import { ChatSession, GeminiSettings, ChatMessage, AICharacter } from '../types.ts'; 
 import { USER_DEFINED_GLOBAL_DEFAULTS_KEY } from '../constants.ts';
 
 const DB_NAME = 'GeminiChatDB';
-const DB_VERSION = 1; 
+const DB_VERSION = 2; 
 const CHAT_SESSIONS_STORE = 'chatSessions';
 const APP_METADATA_STORE = 'appMetadata';
+const AUDIO_CACHE_STORE = 'audioCache';
+
+// Helper function to strip runtime-only properties from a message before persistence.
+const stripRuntimeMessageProperties = (message: ChatMessage): ChatMessage => {
+    // This creates a new object, omitting the cachedAudioBuffers property.
+    // This property is used for runtime audio caching but should not be persisted in the database,
+    // as audio data is stored in the 'audioCache' object store.
+    const { cachedAudioBuffers, ...restOfMessage } = message;
+    return restOfMessage;
+};
 
 interface AppMetadataValue {
     key: string;
@@ -31,14 +41,63 @@ function openDB(): Promise<IDBDatabase> {
     openingPromise = new Promise((resolve, reject) => {
         const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-        request.onupgradeneeded = (_event) => {
+        request.onupgradeneeded = (event: IDBVersionChangeEvent) => {
             const db = request.result;
-            if (!db.objectStoreNames.contains(CHAT_SESSIONS_STORE)) {
-                const sessionStore = db.createObjectStore(CHAT_SESSIONS_STORE, { keyPath: 'id' });
-                sessionStore.createIndex('lastUpdatedAt', 'lastUpdatedAt', { unique: false });
+            const oldVersion = event.oldVersion;
+            
+            if (oldVersion < 1) { // Handles initial DB creation
+                if (!db.objectStoreNames.contains(CHAT_SESSIONS_STORE)) {
+                    const sessionStore = db.createObjectStore(CHAT_SESSIONS_STORE, { keyPath: 'id' });
+                    sessionStore.createIndex('lastUpdatedAt', 'lastUpdatedAt', { unique: false });
+                }
+                if (!db.objectStoreNames.contains(APP_METADATA_STORE)) {
+                    db.createObjectStore(APP_METADATA_STORE, { keyPath: 'key' });
+                }
             }
-            if (!db.objectStoreNames.contains(APP_METADATA_STORE)) {
-                db.createObjectStore(APP_METADATA_STORE, { keyPath: 'key' });
+
+            if (oldVersion < 2) { // Migration from v1 to v2
+                if (!db.objectStoreNames.contains(AUDIO_CACHE_STORE)) {
+                    db.createObjectStore(AUDIO_CACHE_STORE);
+                }
+
+                // Data migration logic
+                const transaction = request.transaction;
+                if (!transaction) return;
+                const sessionStore = transaction.objectStore(CHAT_SESSIONS_STORE);
+                const audioStore = transaction.objectStore(AUDIO_CACHE_STORE);
+                
+                sessionStore.getAll().onsuccess = (getAllEvent) => {
+                    const sessions: ChatSession[] = (getAllEvent.target as IDBRequest<ChatSession[]>).result;
+                    sessions.forEach(session => {
+                        let sessionModified = false;
+                        const updatedMessages = session.messages.map(message => {
+                            const msgWithBuffers = message as any; // Allow access to old property for migration
+                            if (msgWithBuffers.cachedAudioBuffers && Array.isArray(msgWithBuffers.cachedAudioBuffers)) {
+                                const buffersToMigrate = msgWithBuffers.cachedAudioBuffers.filter((b: any) => b instanceof ArrayBuffer);
+                                if (buffersToMigrate.length > 0) {
+                                    buffersToMigrate.forEach((buffer: ArrayBuffer, index: number) => {
+                                        const key = `${message.id}_part_${index}`;
+                                        audioStore.put(buffer, key);
+                                    });
+
+                                    // Create a new message object without the old property and with the new one
+                                    const newMessage: Partial<ChatMessage> & { cachedAudioBuffers?: any } = { ...message };
+                                    newMessage.cachedAudioSegmentCount = buffersToMigrate.length;
+                                    delete newMessage.cachedAudioBuffers;
+                                    
+                                    sessionModified = true;
+                                    return newMessage as ChatMessage;
+                                }
+                            }
+                            return message;
+                        });
+
+                        if (sessionModified) {
+                            session.messages = updatedMessages;
+                            sessionStore.put(session); // Put the modified session back into the store
+                        }
+                    });
+                };
             }
         };
 
@@ -73,6 +132,49 @@ function openDB(): Promise<IDBDatabase> {
         };
     });
     return openingPromise;
+}
+
+export async function getAudioBuffer(key: string): Promise<ArrayBuffer | undefined> {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        if (!db.objectStoreNames.contains(AUDIO_CACHE_STORE)) {
+            return reject(new Error(`Object store ${AUDIO_CACHE_STORE} not found.`));
+        }
+        const transaction = db.transaction(AUDIO_CACHE_STORE, 'readonly');
+        const store = transaction.objectStore(AUDIO_CACHE_STORE);
+        const request = store.get(key);
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+    });
+}
+
+export async function setAudioBuffer(key: string, buffer: ArrayBuffer): Promise<void> {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        if (!db.objectStoreNames.contains(AUDIO_CACHE_STORE)) {
+            return reject(new Error(`Object store ${AUDIO_CACHE_STORE} not found.`));
+        }
+        const transaction = db.transaction(AUDIO_CACHE_STORE, 'readwrite');
+        const store = transaction.objectStore(AUDIO_CACHE_STORE);
+        const request = store.put(buffer, key);
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+    });
+}
+
+export async function deleteAudioBuffer(key: string): Promise<void> {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        if (!db.objectStoreNames.contains(AUDIO_CACHE_STORE)) {
+            // It's not an error if the store doesn't exist on delete, just means there's nothing to delete.
+            return resolve();
+        }
+        const transaction = db.transaction(AUDIO_CACHE_STORE, 'readwrite');
+        const store = transaction.objectStore(AUDIO_CACHE_STORE);
+        const request = store.delete(key);
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+    });
 }
 
 export async function getChatSession(id: string): Promise<ChatSession | undefined> {
@@ -111,7 +213,13 @@ export async function addOrUpdateChatSession(session: ChatSession): Promise<void
         }
         const transaction = db.transaction(CHAT_SESSIONS_STORE, 'readwrite');
         const store = transaction.objectStore(CHAT_SESSIONS_STORE);
-        const request = store.put(session);
+
+        const sessionToStore = {
+            ...session,
+            messages: session.messages.map(stripRuntimeMessageProperties)
+        };
+        const request = store.put(sessionToStore);
+
         transaction.oncomplete = () => resolve();
         transaction.onerror = () => reject(transaction.error);
         request.onerror = (event) => { // More specific error handling for the request itself
@@ -244,3 +352,66 @@ export const METADATA_KEYS = {
     API_KEYS: 'apiKeys', // For storing user-managed API keys
     API_KEY_ROTATION: 'apiKeyRotationEnabled',
 };
+
+
+// Phase 1: New Granular Database Functions
+
+async function getAndUpdateSession(chatId: string, updateFn: (session: ChatSession) => ChatSession, updateTimestamp: boolean = true): Promise<void> {
+    const db = await openDB();
+    return new Promise((resolve, reject) => {
+        if (!db.objectStoreNames.contains(CHAT_SESSIONS_STORE)) {
+            return reject(new Error(`Object store ${CHAT_SESSIONS_STORE} not found.`));
+        }
+        const transaction = db.transaction(CHAT_SESSIONS_STORE, 'readwrite');
+        const store = transaction.objectStore(CHAT_SESSIONS_STORE);
+        const request = store.get(chatId);
+
+        request.onsuccess = () => {
+            const session = request.result;
+            if (session) {
+                let updatedSession = updateFn(session);
+                if (updateTimestamp) {
+                    updatedSession = { ...updatedSession, lastUpdatedAt: new Date() };
+                }
+                
+                const sessionToStore = {
+                    ...updatedSession,
+                    messages: updatedSession.messages.map(stripRuntimeMessageProperties)
+                };
+
+                const putRequest = store.put(sessionToStore);
+                putRequest.onerror = (event) => reject((event.target as IDBRequest).error);
+            } else {
+                console.warn(`Session with id ${chatId} not found for update.`);
+            }
+        };
+        request.onerror = () => reject(request.error);
+
+        transaction.oncomplete = () => resolve();
+        transaction.onerror = () => reject(transaction.error);
+    });
+}
+
+export async function updateChatTitleInDB(chatId: string, newTitle: string): Promise<void> {
+    return getAndUpdateSession(chatId, (session) => ({ ...session, title: newTitle }));
+}
+
+export async function updateMessagesInDB(chatId: string, newMessages: ChatMessage[]): Promise<void> {
+    return getAndUpdateSession(chatId, (session) => ({ ...session, messages: newMessages }));
+}
+
+export async function updateSettingsInDB(chatId: string, newSettings: GeminiSettings): Promise<void> {
+    return getAndUpdateSession(chatId, (session) => ({ ...session, settings: newSettings }));
+}
+
+export async function updateModelInDB(chatId: string, newModel: string): Promise<void> {
+    return getAndUpdateSession(chatId, (session) => ({ ...session, model: newModel }));
+}
+
+export async function updateCharactersInDB(chatId: string, newCharacters: AICharacter[]): Promise<void> {
+    return getAndUpdateSession(chatId, (session) => ({ ...session, aiCharacters: newCharacters }));
+}
+
+export async function updateGithubContextInDB(chatId: string, newContext: ChatSession['githubRepoContext']): Promise<void> {
+    return getAndUpdateSession(chatId, (session) => ({ ...session, githubRepoContext: newContext }));
+}

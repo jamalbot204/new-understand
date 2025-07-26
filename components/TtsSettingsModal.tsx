@@ -1,5 +1,3 @@
-
-
 import React, { useState, useEffect, memo, useCallback } from 'react';
 import { useModalStore } from '../store/useModalStore.ts';
 import { useActiveChatStore } from '../store/useActiveChatStore.ts';
@@ -11,7 +9,7 @@ import InstructionEditModal from './InstructionEditModal.tsx';
 
 // No props are needed anymore!
 const TtsSettingsModal: React.FC = memo(() => {
-  const { currentChatSession, updateCurrentChatSession } = useActiveChatStore();
+  const { currentChatSession, updateCurrentChatSession } = useActiveChatStore.getState();
   const { isTtsSettingsModalOpen, closeTtsSettingsModal } = useModalStore();
 
   const [localTtsSettings, setLocalTtsSettings] = useState<TTSSettings>(currentChatSession?.settings.ttsSettings || DEFAULT_TTS_SETTINGS);
@@ -19,11 +17,8 @@ const TtsSettingsModal: React.FC = memo(() => {
 
   useEffect(() => {
     if (isTtsSettingsModalOpen && currentChatSession) {
-      const currentMaxWords = currentChatSession.settings.ttsSettings?.maxWordsPerSegment;
-      setLocalTtsSettings({
-        ...(currentChatSession.settings.ttsSettings || DEFAULT_TTS_SETTINGS),
-        maxWordsPerSegment: currentMaxWords,
-      });
+      const currentSettings = currentChatSession.settings.ttsSettings || DEFAULT_TTS_SETTINGS;
+      setLocalTtsSettings(currentSettings);
     }
   }, [isTtsSettingsModalOpen, currentChatSession]);
 
@@ -44,14 +39,14 @@ const TtsSettingsModal: React.FC = memo(() => {
     if (valueString === '') {
         setLocalTtsSettings(prev => ({
             ...prev,
-            maxWordsPerSegment: undefined
+            maxWordsPerSegment: 999999
         }));
         return;
     }
     const value = parseInt(valueString, 10);
     setLocalTtsSettings(prev => ({
       ...prev,
-      maxWordsPerSegment: (Number.isInteger(value) && value > 0) ? value : undefined
+      maxWordsPerSegment: (Number.isInteger(value) && value > 0) ? value : 999999
     }));
   }, []);
 
@@ -66,6 +61,9 @@ const TtsSettingsModal: React.FC = memo(() => {
 
   const handleApplySettings = useCallback(() => {
     if (!currentChatSession) return;
+
+    // The local state now directly holds the value to be saved (e.g., 999999 for no split).
+    // No translation is needed on apply.
     updateCurrentChatSession(session => session ? ({
         ...session,
         settings: { ...session.settings, ttsSettings: localTtsSettings }
@@ -120,9 +118,9 @@ const TtsSettingsModal: React.FC = memo(() => {
                 value={localTtsSettings.maxWordsPerSegment ?? ''} 
                 onChange={handleMaxWordsChange} 
                 step="10" 
-                placeholder="Default: No split, or enter number" 
+                placeholder="Default: No split (999999)" 
               />
-              <p className="text-xs text-gray-400 mt-1">Defines max words per audio segment. Empty or invalid number for no split. Positive number to set limit.</p>
+              <p className="text-xs text-gray-400 mt-1">Defines max words per audio segment. Empty for no split (defaults to 999999). Positive number to set limit.</p>
             </div>
             <div className="border-t border-[var(--aurora-border)] pt-4">
               <label className="block text-sm font-medium text-gray-300 mb-1">System Instruction (for TTS Model)</label>

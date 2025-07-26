@@ -1,20 +1,40 @@
+
 import { create } from 'zustand';
 
-interface DummyAudioState {
+interface DummyAudioControls {
   play: () => void;
   pause: () => void;
 }
 
-interface DummyAudioActions {
-  setControls: (controls: { play: () => void; pause: () => void; }) => void;
+interface DummyAudioState {
+  controls: DummyAudioControls | null;
+  setAudioControls: (controls: DummyAudioControls | null) => void;
+  playDummyAudio: () => void;
+  pauseDummyAudio: () => void;
 }
 
-export const useDummyAudioStore = create<DummyAudioState & DummyAudioActions>((set) => ({
-  // Initial dummy functions to prevent errors before initialization.
-  play: () => console.warn("Dummy audio 'play' control not yet initialized."),
-  pause: () => console.warn("Dummy audio 'pause' control not yet initialized."),
+/**
+ * Zustand store for managing the dummy audio element.
+ * This provides a global way to control the hidden <audio> element's playback,
+ * which is necessary for integrating with hardware media keys and the Media Session API.
+ */
+export const useDummyAudioStore = create<DummyAudioState>((set, get) => ({
+  controls: null,
+  setAudioControls: (controls) => set({ controls }),
+  
+  /**
+   * Plays the silent, looping dummy audio element.
+   * This should be called whenever the main application audio (from Web Audio API) starts playing.
+   */
+  playDummyAudio: () => {
+    get().controls?.play();
+  },
 
-  setControls: (controls) => {
-    set({ play: controls.play, pause: controls.pause });
+  /**
+   * Pauses the silent, looping dummy audio element.
+   * This should be called whenever the main application audio (from Web Audio API) is paused or stopped.
+   */
+  pauseDummyAudio: () => {
+    get().controls?.pause();
   },
 }));

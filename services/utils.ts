@@ -2,10 +2,13 @@
 import { MODEL_DEFINITIONS } from '../constants.ts';
 import { ChatMessage, ChatMessageRole, Attachment } from '../types.ts';
 
+const SMART_SPLIT_SEARCH_RANGE = 50; // Words before and after the ideal split point.
+
 /**
  * Splits text into segments for Text-to-Speech processing.
- * Each segment will have at most `maxWordsPerSegment`.
- * If `maxWordsPerSegment` is undefined, 0, or non-positive, the text is not split.
+ * This function implements a "smart split" logic. If the text exceeds `maxWordsPerSegment`,
+ * it calculates an ideal split point and then searches for the nearest sentence-ending
+ * punctuation (`.`, `?`, `!`) within a defined word range to create more natural breaks.
  *
  * @param fullText The complete text to be split.
  * @param maxWordsPerSegment The maximum number of words allowed in a single segment, or undefined/non-positive for no splitting.
@@ -19,31 +22,58 @@ export const splitTextForTts = (fullText: string, maxWordsPerSegment?: number): 
     return [];
   }
 
-  // If maxWordsPerSegment is undefined, 0, non-positive, or if totalWords is less than/equal to it, don't split.
+  // If maxWordsPerSegment is not defined, is non-positive, or if totalWords is within the limit, don't split.
   if (maxWordsPerSegment === undefined || maxWordsPerSegment <= 0 || totalWords <= maxWordsPerSegment) {
     return [fullText];
   }
 
-  // Calculate the number of segments needed.
-  const numSegments = Math.ceil(totalWords / maxWordsPerSegment);
-
-  // Calculate the target number of words for each segment to make them as equal as possible.
-  const targetWordsPerSegment = Math.ceil(totalWords / numSegments);
-
   const segments: string[] = [];
-  let currentWordIndex = 0;
+  let remainingWords = [...words];
+  let numSegmentsToCreate = Math.ceil(totalWords / maxWordsPerSegment);
 
-  for (let i = 0; i < numSegments; i++) {
-    const startIndex = currentWordIndex;
-    const endIndex = Math.min(startIndex + targetWordsPerSegment, totalWords);
+  while (remainingWords.length > 0 && numSegmentsToCreate > 1) {
+    const idealSplitPoint = Math.ceil(remainingWords.length / numSegmentsToCreate);
     
-    const segmentWords = words.slice(startIndex, endIndex);
+    // Define search boundaries within the remaining text
+    const searchStart = Math.max(0, idealSplitPoint - SMART_SPLIT_SEARCH_RANGE);
+    const searchEnd = Math.min(remainingWords.length - 1, idealSplitPoint + SMART_SPLIT_SEARCH_RANGE);
+
+    const possibleSplitIndices: number[] = [];
+    for (let i = searchStart; i <= searchEnd; i++) {
+        const word = remainingWords[i];
+        if (word.endsWith('.') || word.endsWith('?') || word.endsWith('!')) {
+            possibleSplitIndices.push(i);
+        }
+    }
+
+    let bestSplitIndex = -1;
+    if (possibleSplitIndices.length > 0) {
+        // Find the index in the possible list that is closest to idealSplitPoint
+        bestSplitIndex = possibleSplitIndices.reduce((prev, curr) => {
+            return (Math.abs(curr - idealSplitPoint) < Math.abs(prev - idealSplitPoint)) ? curr : prev;
+        });
+    }
+
+    // If no sentence end was found, fallback to the ideal split point
+    const fallbackSplitPoint = Math.min(idealSplitPoint, remainingWords.length - 1);
+    const splitIndex = (bestSplitIndex !== -1) ? bestSplitIndex : fallbackSplitPoint;
+
+    // Create the segment. The split is *after* the word at splitIndex.
+    const segmentWords = remainingWords.slice(0, splitIndex + 1);
     if (segmentWords.length > 0) {
       segments.push(segmentWords.join(' '));
     }
-    currentWordIndex = endIndex;
+
+    // Update remaining words and segments count
+    remainingWords = remainingWords.slice(splitIndex + 1);
+    numSegmentsToCreate--;
   }
-  
+
+  // Add the final remaining part as the last segment
+  if (remainingWords.length > 0) {
+    segments.push(remainingWords.join(' '));
+  }
+
   return segments.filter(s => s.trim() !== "");
 };
 

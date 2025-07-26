@@ -72,7 +72,7 @@ export const DEFAULT_TTS_SETTINGS: TTSSettings = {
     voice: 'Zephyr',
     autoPlayNewMessages: false, // Renamed from autoFetchAudioEnabled
     systemInstruction: '', 
-    maxWordsPerSegment: undefined, // Default to no splitting
+    maxWordsPerSegment: 999999, // Default to a very large number, effectively no split
 };
 
 export const PLAYBACK_SPEEDS = [0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];

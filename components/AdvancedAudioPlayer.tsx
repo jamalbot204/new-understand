@@ -1,5 +1,4 @@
 
-
 import React, { useState, useRef, useEffect, useCallback, memo } from 'react';
 import { AudioPlayerState } from '../types.ts';
 import {
@@ -10,7 +9,8 @@ import {
   PauseIcon,
   FastForwardIcon,
   PlusIcon,
-  MinusIcon
+  MinusIcon,
+  BookOpenIcon,
 } from './Icons.tsx';
 import GoToMessageButton from './GoToMessageButton.tsx'; // Import the new button
 
@@ -39,6 +39,7 @@ interface AdvancedAudioPlayerProps {
   onGoToMessage?: () => void;
   onIncreaseSpeed: () => void;
   onDecreaseSpeed: () => void;
+  onEnterReadMode?: () => void;
 }
 
 const AdvancedAudioPlayer: React.FC<AdvancedAudioPlayerProps> = memo(({
@@ -51,6 +52,7 @@ const AdvancedAudioPlayer: React.FC<AdvancedAudioPlayerProps> = memo(({
   onGoToMessage,
   onIncreaseSpeed,
   onDecreaseSpeed,
+  onEnterReadMode,
 }) => {
   const [isSeeking, setIsSeeking] = useState(false);
   const [visualSeekTime, setVisualSeekTime] = useState<number | null>(null);
@@ -151,6 +153,17 @@ const AdvancedAudioPlayer: React.FC<AdvancedAudioPlayerProps> = memo(({
           </div>
           {onGoToMessage && currentMessageId && (
             <GoToMessageButton onClick={onGoToMessage} disabled={!currentMessageId} />
+          )}
+          {onEnterReadMode && currentMessageId && (
+            <button
+              onClick={onEnterReadMode}
+              disabled={!currentMessageId}
+              className={`p-1.5 text-gray-400 hover:text-purple-300 rounded-full hover:bg-white/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed ml-1 flex-shrink-0`}
+              title="Enter Read Mode"
+              aria-label="Enter Read Mode for playing message"
+            >
+              <BookOpenIcon className="w-4 h-4" />
+            </button>
           )}
         </div>
 

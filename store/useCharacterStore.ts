@@ -3,6 +3,7 @@ import { useActiveChatStore } from './useActiveChatStore.ts';
 import { useToastStore } from './useToastStore.ts';
 import { AICharacter, GeminiSettings } from '../types.ts';
 import { clearCachedChat as geminiServiceClearCachedChat } from '../services/geminiService.ts';
+import { useDataStore } from './useDataStore.ts';
 
 interface CharacterStoreState {
   // Actions
@@ -43,22 +44,32 @@ export const useCharacterStore = create<CharacterStoreState>(() => ({
 
   addCharacter: async (name, systemInstruction) => {
     const { currentChatSession, updateCurrentChatSession } = useActiveChatStore.getState();
+    const { updateCharacters } = useDataStore.getState();
     if (!currentChatSession) return;
+
     const newCharacter: AICharacter = {
       id: `char-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`,
       name,
       systemInstruction,
       contextualInfo: '',
     };
+    
     await updateCurrentChatSession(session => session ? ({
       ...session,
       aiCharacters: [...(session.aiCharacters || []), newCharacter],
     }) : null);
+    
+    const updatedSession = useActiveChatStore.getState().currentChatSession;
+    if (updatedSession) {
+      await updateCharacters(updatedSession.id, updatedSession.aiCharacters || []);
+    }
+    
     useToastStore.getState().showToast("Character added!", "success");
   },
 
   editCharacter: async (id, name, systemInstruction) => {
     const { currentChatSession, updateCurrentChatSession } = useActiveChatStore.getState();
+    const { updateCharacters } = useDataStore.getState();
     if (!currentChatSession) return;
 
     const characterBeingEdited = currentChatSession.aiCharacters?.find(c => c.id === id);
@@ -77,11 +88,18 @@ export const useCharacterStore = create<CharacterStoreState>(() => ({
         char.id === id ? { ...char, name, systemInstruction } : char
       ),
     }) : null);
+
+    const updatedSession = useActiveChatStore.getState().currentChatSession;
+    if (updatedSession) {
+      await updateCharacters(updatedSession.id, updatedSession.aiCharacters || []);
+    }
+
     useToastStore.getState().showToast("Character updated!", "success");
   },
 
   deleteCharacter: async (id) => {
     const { currentChatSession, updateCurrentChatSession } = useActiveChatStore.getState();
+    const { updateCharacters } = useDataStore.getState();
     if (!currentChatSession) return;
 
     const characterBeingDeleted = currentChatSession.aiCharacters?.find(c => c.id === id);
@@ -98,12 +116,20 @@ export const useCharacterStore = create<CharacterStoreState>(() => ({
       ...session,
       aiCharacters: (session.aiCharacters || []).filter(char => char.id !== id),
     }) : null);
+
+    const updatedSession = useActiveChatStore.getState().currentChatSession;
+    if (updatedSession) {
+      await updateCharacters(updatedSession.id, updatedSession.aiCharacters || []);
+    }
+
     useToastStore.getState().showToast("Character deleted!", "success");
   },
 
   reorderCharacters: async (newCharacters) => {
     const { currentChatSession, updateCurrentChatSession } = useActiveChatStore.getState();
+    const { updateCharacters } = useDataStore.getState();
     if (!currentChatSession) return;
+
     if (currentChatSession.isCharacterModeActive && currentChatSession.aiCharacters && currentChatSession.aiCharacters.length > 0) {
       currentChatSession.aiCharacters.forEach(character => {
         const settingsForThisCharacterCache: GeminiSettings & { _characterIdForCacheKey?: string } = {
@@ -119,10 +145,17 @@ export const useCharacterStore = create<CharacterStoreState>(() => ({
       ...session,
       aiCharacters: newCharacters,
     }) : null);
+
+    const updatedSession = useActiveChatStore.getState().currentChatSession;
+    if (updatedSession) {
+      await updateCharacters(updatedSession.id, updatedSession.aiCharacters || []);
+    }
   },
 
   saveContextualInfo: async (characterId, newInfo) => {
     const { updateCurrentChatSession } = useActiveChatStore.getState();
+    const { updateCharacters } = useDataStore.getState();
+
     await updateCurrentChatSession(session => {
       if (!session || !session.aiCharacters) return session;
       return {
@@ -132,6 +165,12 @@ export const useCharacterStore = create<CharacterStoreState>(() => ({
         ),
       };
     });
+
+    const updatedSession = useActiveChatStore.getState().currentChatSession;
+    if (updatedSession) {
+      await updateCharacters(updatedSession.id, updatedSession.aiCharacters || []);
+    }
+
     useToastStore.getState().showToast("Contextual info saved!", "success");
   },
 }));

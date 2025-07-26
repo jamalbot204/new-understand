@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { useApiKeyStore } from './useApiKeyStore.ts';
 import { useActiveChatStore } from './useActiveChatStore.ts';
@@ -31,7 +30,7 @@ interface GeminiApiActions {
     handleCancelGeneration: () => Promise<void>;
     handleRegenerateAIMessage: (aiMessageIdToRegenerate: string) => Promise<void>;
     handleRegenerateResponseForUserMessage: (userMessageId: string) => Promise<void>;
-    handleEditPanelSubmit: (action: EditMessagePanelAction, newContent: string, editingMessageDetail: EditMessagePanelDetails) => Promise<void>;
+    handleEditPanelSubmit: (action: EditMessagePanelAction, newContent: string, editingMessageDetail: EditMessagePanelDetails, newAttachments?: Attachment[]) => Promise<void>;
 }
 
 export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set, get) => {
@@ -74,6 +73,7 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
     
     const handleCancelGeneration = async () => {
         const { updateCurrentChatSession } = useActiveChatStore.getState();
+        const { updateMessages } = useDataStore.getState();
         if (abortControllerRef && !abortControllerRef.signal.aborted) {
             requestCancelledByUserRef = true;
             abortControllerRef.abort();
@@ -97,178 +97,197 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
                     return session;
                 });
             }
+            const sessionAfterUpdate = useActiveChatStore.getState().currentChatSession;
+            if (sessionAfterUpdate) {
+                await updateMessages(sessionAfterUpdate.id, sessionAfterUpdate.messages);
+            }
         }
         pendingMessageIdRef = null;
         originalMessageSnapshotRef = null;
     };
 
-    const handleSendMessage = (
+    const handleSendMessage = async (
         promptContent: string, attachments?: Attachment[], historyContextOverride?: ChatMessage[],
         characterIdForAPICall?: string, isTemporaryContext?: boolean
-      ): Promise<void> => {
-        return new Promise(async (resolve) => {
-            const { rotateActiveKey } = useApiKeyStore.getState();
-            const { currentChatSession, updateCurrentChatSession } = useActiveChatStore.getState();
-            const { setMessageGenerationTimes } = useDataStore.getState();
+      ) => {
+        const { activeApiKey, rotateActiveKey } = useApiKeyStore.getState();
+        const { currentChatSession, updateCurrentChatSession } = useActiveChatStore.getState();
+        const { setMessageGenerationTimes, updateMessages } = useDataStore.getState();
 
-            if (!currentChatSession || get().isLoading) return resolve();
-            
-            const keyToUse = await rotateActiveKey();
+        if (!currentChatSession || get().isLoading) return;
+        if (!activeApiKey?.value) {
+            await updateCurrentChatSession(session => {
+                if (!session) return null;
+                const errorMessage: ChatMessage = {
+                    id: `err-${Date.now()}`,
+                    role: ChatMessageRole.ERROR,
+                    content: "No API key set. Please go to Settings > API Key to set your key.",
+                    timestamp: new Date(),
+                };
+                return { ...session, messages: [...session.messages, errorMessage] };
+            });
+            const sessionAfterError = useActiveChatStore.getState().currentChatSession;
+            if(sessionAfterError) await updateMessages(sessionAfterError.id, sessionAfterError.messages);
+            return;
+        }
 
-            if (!keyToUse?.value) {
-                updateCurrentChatSession(session => {
-                    if (!session) return null;
-                    const errorMessage: ChatMessage = {
-                        id: `err-${Date.now()}`,
-                        role: ChatMessageRole.ERROR,
-                        content: "No API key set. Please go to Settings > API Key to set your key.",
-                        timestamp: new Date(),
-                    };
-                    return { ...session, messages: [...session.messages, errorMessage] };
-                });
-                return resolve();
+        await rotateActiveKey();
+    
+        requestCancelledByUserRef = false;
+        onFullResponseCalledForPendingMessageRef = false;
+        if (!isTemporaryContext) {
+            originalMessageSnapshotRef = null;
+        }
+        set({lastMessageHadAttachments: !!(attachments && attachments.length > 0 && !isTemporaryContext)});
+    
+        let sessionToUpdate = { ...currentChatSession };
+        let baseSettingsForAPICall = { ...currentChatSession.settings };
+        let settingsOverrideForAPICall: Partial<GeminiSettings & { _characterIdForAPICall?: string }> = {};
+        let characterNameForResponse: string | undefined = undefined;
+        let userMessageIdForPotentialTitleUpdate: string | null = null;
+    
+        if (currentChatSession.isCharacterModeActive && characterIdForAPICall) {
+            const character = (currentChatSession.aiCharacters || []).find(c => c.id === characterIdForAPICall);
+            if (character) {
+                settingsOverrideForAPICall.systemInstruction = character.systemInstruction;
+                settingsOverrideForAPICall.userPersonaInstruction = undefined;
+                settingsOverrideForAPICall._characterIdForAPICall = character.id;
+                characterNameForResponse = character.name;
+            } else { return; }
+        }
+    
+        let finalUserMessageInputForAPI: UserMessageInput;
+        if (currentChatSession.isCharacterModeActive && characterIdForAPICall && !promptContent.trim() && (!attachments || attachments.length === 0) && !historyContextOverride) {
+            const characterTriggered = (currentChatSession.aiCharacters || []).find(c => c.id === characterIdForAPICall);
+            finalUserMessageInputForAPI = (characterTriggered?.contextualInfo?.trim()) ? { text: characterTriggered.contextualInfo, attachments: [] } : { text: "", attachments: [] };
+        } else {
+            finalUserMessageInputForAPI = { text: promptContent, attachments: attachments || [] };
+        }
+    
+        if (!characterIdForAPICall && !historyContextOverride && !finalUserMessageInputForAPI.text.trim() && (!finalUserMessageInputForAPI.attachments || finalUserMessageInputForAPI.attachments.length === 0) && !currentChatSession.githubRepoContext) return;
+    
+        let historyForGeminiSDK: ChatMessage[] = historyContextOverride ? [...historyContextOverride] : [...sessionToUpdate.messages];
+    
+        let currentTurnUserMessageForUI: ChatMessage | null = null;
+        if (!isTemporaryContext) {
+            currentTurnUserMessageForUI = { id: `msg-${Date.now()}-user-turn-${Math.random().toString(36).substring(2,7)}`, role: ChatMessageRole.USER, content: finalUserMessageInputForAPI.text, attachments: finalUserMessageInputForAPI.attachments?.map(att => ({...att})), timestamp: new Date() };
+            userMessageIdForPotentialTitleUpdate = currentTurnUserMessageForUI.id;
+        }
+    
+        setIsLoading(true);
+        abortControllerRef = new AbortController();
+    
+        const modelMessageId = pendingMessageIdRef || `msg-${Date.now()}-model-${Math.random().toString(36).substring(2,7)}`;
+        pendingMessageIdRef = modelMessageId;
+        const placeholderAiMessage: ChatMessage = { id: modelMessageId, role: ChatMessageRole.MODEL, content: '', timestamp: new Date(), isStreaming: true, characterName: characterNameForResponse };
+    
+        let messagesForUIUpdate: ChatMessage[] = [...historyForGeminiSDK];
+        if (currentTurnUserMessageForUI) messagesForUIUpdate.push(currentTurnUserMessageForUI);
+        
+        const existingMessageIndex = messagesForUIUpdate.findIndex(m => m.id === modelMessageId);
+        if (existingMessageIndex > -1) {
+            messagesForUIUpdate[existingMessageIndex] = placeholderAiMessage;
+        } else {
+            messagesForUIUpdate.push(placeholderAiMessage);
+        }
+    
+        let newTitleForSession = sessionToUpdate.title;
+        if (userMessageIdForPotentialTitleUpdate && sessionToUpdate.title === "New Chat") {
+            const userMessagesInHistory = historyForGeminiSDK.filter(m => m.role === ChatMessageRole.USER).length;
+            if (userMessagesInHistory === 0) {
+                 newTitleForSession = (finalUserMessageInputForAPI.text || "Chat with attachments").substring(0, 35) + ((finalUserMessageInputForAPI.text.length > 35 || (!finalUserMessageInputForAPI.text && finalUserMessageInputForAPI.attachments && finalUserMessageInputForAPI.attachments.length > 0)) ? "..." : "");
             }
+        }
+    
+        await updateCurrentChatSession(s => s ? ({ ...s, messages: messagesForUIUpdate, lastUpdatedAt: new Date(), title: newTitleForSession }) : null);
         
-            requestCancelledByUserRef = false;
-            onFullResponseCalledForPendingMessageRef = false;
-            if (!isTemporaryContext) {
-                originalMessageSnapshotRef = null;
-            }
-            set({lastMessageHadAttachments: !!(attachments && attachments.length > 0 && !isTemporaryContext)});
-        
-            let sessionToUpdate = { ...currentChatSession };
-            let baseSettingsForAPICall = { ...currentChatSession.settings };
-            let settingsOverrideForAPICall: Partial<GeminiSettings & { _characterIdForAPICall?: string }> = {};
-            let characterNameForResponse: string | undefined = undefined;
-            let userMessageIdForPotentialTitleUpdate: string | null = null;
-        
-            if (currentChatSession.isCharacterModeActive && characterIdForAPICall) {
-                const character = (currentChatSession.aiCharacters || []).find(c => c.id === characterIdForAPICall);
-                if (character) {
-                    settingsOverrideForAPICall.systemInstruction = character.systemInstruction;
-                    settingsOverrideForAPICall.userPersonaInstruction = undefined;
-                    settingsOverrideForAPICall._characterIdForAPICall = character.id;
-                    characterNameForResponse = character.name;
-                } else { return resolve(); }
-            }
-        
-            let finalUserMessageInputForAPI: UserMessageInput;
-            if (currentChatSession.isCharacterModeActive && characterIdForAPICall && !promptContent.trim() && (!attachments || attachments.length === 0) && !historyContextOverride) {
-                const characterTriggered = (currentChatSession.aiCharacters || []).find(c => c.id === characterIdForAPICall);
-                finalUserMessageInputForAPI = (characterTriggered?.contextualInfo?.trim()) ? { text: characterTriggered.contextualInfo, attachments: [] } : { text: "", attachments: [] };
-            } else {
-                finalUserMessageInputForAPI = { text: promptContent, attachments: attachments || [] };
-            }
-        
-            if (!characterIdForAPICall && !historyContextOverride && !finalUserMessageInputForAPI.text.trim() && (!finalUserMessageInputForAPI.attachments || finalUserMessageInputForAPI.attachments.length === 0) && !currentChatSession.githubRepoContext) return resolve();
-        
-            let historyForGeminiSDK: ChatMessage[] = historyContextOverride ? [...historyContextOverride] : [...sessionToUpdate.messages];
-        
-            let currentTurnUserMessageForUI: ChatMessage | null = null;
-            if (!isTemporaryContext) {
-                currentTurnUserMessageForUI = { id: `msg-${Date.now()}-user-turn-${Math.random().toString(36).substring(2,7)}`, role: ChatMessageRole.USER, content: finalUserMessageInputForAPI.text, attachments: finalUserMessageInputForAPI.attachments?.map(att => ({...att})), timestamp: new Date() };
-                userMessageIdForPotentialTitleUpdate = currentTurnUserMessageForUI.id;
-            }
-        
-            setIsLoading(true);
-            abortControllerRef = new AbortController();
-        
-            const modelMessageId = pendingMessageIdRef || `msg-${Date.now()}-model-${Math.random().toString(36).substring(2,7)}`;
-            pendingMessageIdRef = modelMessageId;
-            const placeholderAiMessage: ChatMessage = { id: modelMessageId, role: ChatMessageRole.MODEL, content: '', timestamp: new Date(), isStreaming: true, characterName: characterNameForResponse };
-        
-            let messagesForUIUpdate: ChatMessage[] = [...historyForGeminiSDK];
-            if (currentTurnUserMessageForUI) messagesForUIUpdate.push(currentTurnUserMessageForUI);
-            
-            const existingMessageIndex = messagesForUIUpdate.findIndex(m => m.id === modelMessageId);
-            if (existingMessageIndex > -1) {
-                messagesForUIUpdate[existingMessageIndex] = placeholderAiMessage;
-            } else {
-                messagesForUIUpdate.push(placeholderAiMessage);
-            }
-        
-            let newTitleForSession = sessionToUpdate.title;
-            if (userMessageIdForPotentialTitleUpdate && sessionToUpdate.title === "New Chat") {
-                const userMessagesInHistory = historyForGeminiSDK.filter(m => m.role === ChatMessageRole.USER).length;
-                if (userMessagesInHistory === 0) {
-                     newTitleForSession = (finalUserMessageInputForAPI.text || "Chat with attachments").substring(0, 35) + ((finalUserMessageInputForAPI.text.length > 35 || (!finalUserMessageInputForAPI.text && finalUserMessageInputForAPI.attachments && finalUserMessageInputForAPI.attachments.length > 0)) ? "..." : "");
+        const sessionAfterUIMessageUpdate = useActiveChatStore.getState().currentChatSession;
+        if (sessionAfterUIMessageUpdate) {
+            await updateMessages(sessionAfterUIMessageUpdate.id, sessionAfterUIMessageUpdate.messages);
+        }
+
+        const activeChatIdForThisCall = currentChatSession.id;
+    
+        await getFullChatResponse(
+            activeApiKey?.value || '', activeChatIdForThisCall, finalUserMessageInputForAPI, currentChatSession.model, baseSettingsForAPICall,
+            historyForGeminiSDK,
+            async (responseData: FullResponseData) => {
+                if (requestCancelledByUserRef && pendingMessageIdRef === modelMessageId) return;
+                onFullResponseCalledForPendingMessageRef = true;
+                if (generationStartTimeRef) await setMessageGenerationTimes(prev => ({...prev, [modelMessageId]: (Date.now() - (generationStartTimeRef || 0)) / 1000}));
+                
+                const originalMessageSnapshot = originalMessageSnapshotRef;
+                let finalContent = responseData.text;
+                if(originalMessageSnapshot && originalMessageSnapshot.id === modelMessageId && isTemporaryContext) {
+                    finalContent = originalMessageSnapshot.content + responseData.text;
                 }
-            }
-        
-            await updateCurrentChatSession(s => s ? ({ ...s, messages: messagesForUIUpdate, lastUpdatedAt: new Date(), title: newTitleForSession }) : null);
-        
-            const activeChatIdForThisCall = currentChatSession.id;
-        
-            await getFullChatResponse(
-                keyToUse.value, activeChatIdForThisCall, finalUserMessageInputForAPI, currentChatSession.model, baseSettingsForAPICall,
-                historyForGeminiSDK,
-                async (responseData: FullResponseData) => {
-                    if (requestCancelledByUserRef && pendingMessageIdRef === modelMessageId) return;
-                    onFullResponseCalledForPendingMessageRef = true;
-                    if (generationStartTimeRef) await setMessageGenerationTimes(prev => ({...prev, [modelMessageId]: (Date.now() - (generationStartTimeRef || 0)) / 1000}));
-                    
-                    const originalMessageSnapshot = originalMessageSnapshotRef;
-                    let finalContent = responseData.text;
-                    if(originalMessageSnapshot && originalMessageSnapshot.id === modelMessageId && isTemporaryContext) {
-                        finalContent = originalMessageSnapshot.content + responseData.text;
-                    }
-                    const newAiMessage: ChatMessage = { ...placeholderAiMessage, content: finalContent, groundingMetadata: responseData.groundingMetadata, isStreaming: false, timestamp: new Date(), characterName: characterNameForResponse };
-                    
-                    await updateCurrentChatSession(session => session ? ({...session, messages: session.messages.map(msg => msg.id === modelMessageId ? newAiMessage : msg)}) : null);
-                    
-                    const { triggerAutoPlayForNewMessage } = useAudioStore.getState();
-                    await triggerAutoPlayForNewMessage(newAiMessage);
-                },
-                async (errorMsg, isAbortError) => {
-                    if (requestCancelledByUserRef && pendingMessageIdRef === modelMessageId) { setIsLoading(false); set({ lastMessageHadAttachments: false }); return; }
-                    onFullResponseCalledForPendingMessageRef = false;
-                    const finalErrorMessage = isAbortError ? `Response aborted.` : `Response failed: ${errorMsg}`;
-                    await updateCurrentChatSession(session => session ? ({ ...session, messages: session.messages.map(msg => msg.id === modelMessageId ? { ...msg, isStreaming: false, role: ChatMessageRole.ERROR, content: finalErrorMessage, characterName: characterNameForResponse } : msg)}) : null);
-                    if (!requestCancelledByUserRef && pendingMessageIdRef === modelMessageId) { setIsLoading(false); set({ lastMessageHadAttachments: false }); }
-                },
-                async () => {
-                    const userDidCancel = requestCancelledByUserRef;
-                    const currentPendingMsgIdForComplete = pendingMessageIdRef;
-                    if (userDidCancel && currentPendingMsgIdForComplete === modelMessageId) {}
-                    else if (currentPendingMsgIdForComplete === modelMessageId) {
-                        setIsLoading(false); set({ lastMessageHadAttachments: false });
-                        if (!onFullResponseCalledForPendingMessageRef) {
-                            await updateCurrentChatSession(session => {
-                                if (!session) return null;
-                                const messageInState = session.messages.find(m => m.id === modelMessageId);
-                                if (messageInState && messageInState.isStreaming && messageInState.role !== ChatMessageRole.ERROR) {
-                                    return { ...session, messages: session.messages.map(msg => msg.id === modelMessageId ? { ...msg, isStreaming: false, role: ChatMessageRole.ERROR, content: "Response processing failed or stream ended unexpectedly.", timestamp: new Date(), characterName: characterNameForResponse } : msg ), lastUpdatedAt: new Date() };
-                                }
-                                return { ...session, lastUpdatedAt: new Date() };
-                            });
-                        } else {
-                            await updateCurrentChatSession(session => session ? { ...session, lastUpdatedAt: new Date() } : null);
+                const newAiMessage: ChatMessage = { ...placeholderAiMessage, content: finalContent, groundingMetadata: responseData.groundingMetadata, isStreaming: false, timestamp: new Date(), characterName: characterNameForResponse };
+                
+                await updateCurrentChatSession(session => session ? ({...session, messages: session.messages.map(msg => msg.id === modelMessageId ? newAiMessage : msg)}) : null);
+                
+                const sessionAfterResponse = useActiveChatStore.getState().currentChatSession;
+                if (sessionAfterResponse) {
+                    await updateMessages(sessionAfterResponse.id, sessionAfterResponse.messages);
+                }
+
+                const { triggerAutoPlayForNewMessage } = useAudioStore.getState();
+                await triggerAutoPlayForNewMessage(newAiMessage);
+            },
+            async (errorMsg, isAbortError) => {
+                if (requestCancelledByUserRef && pendingMessageIdRef === modelMessageId) { setIsLoading(false); set({ lastMessageHadAttachments: false }); return; }
+                onFullResponseCalledForPendingMessageRef = false;
+                const finalErrorMessage = isAbortError ? `Response aborted.` : `Response failed: ${errorMsg}`;
+                await updateCurrentChatSession(session => session ? ({ ...session, messages: session.messages.map(msg => msg.id === modelMessageId ? { ...msg, isStreaming: false, role: ChatMessageRole.ERROR, content: finalErrorMessage, characterName: characterNameForResponse } : msg)}) : null);
+                
+                const sessionAfterError = useActiveChatStore.getState().currentChatSession;
+                if (sessionAfterError) {
+                    await updateMessages(sessionAfterError.id, sessionAfterError.messages);
+                }
+
+                if (!requestCancelledByUserRef && pendingMessageIdRef === modelMessageId) { setIsLoading(false); set({ lastMessageHadAttachments: false }); }
+            },
+            async () => {
+                const userDidCancel = requestCancelledByUserRef;
+                const currentPendingMsgIdForComplete = pendingMessageIdRef;
+                if (userDidCancel && currentPendingMsgIdForComplete === modelMessageId) {}
+                else if (currentPendingMsgIdForComplete === modelMessageId) {
+                    setIsLoading(false); set({ lastMessageHadAttachments: false });
+                    if (!onFullResponseCalledForPendingMessageRef) {
+                        await updateCurrentChatSession(session => {
+                            if (!session) return null;
+                            const messageInState = session.messages.find(m => m.id === modelMessageId);
+                            if (messageInState && messageInState.isStreaming && messageInState.role !== ChatMessageRole.ERROR) {
+                                return { ...session, messages: session.messages.map(msg => msg.id === modelMessageId ? { ...msg, isStreaming: false, role: ChatMessageRole.ERROR, content: "Response processing failed or stream ended unexpectedly.", timestamp: new Date(), characterName: characterNameForResponse } : msg ), lastUpdatedAt: new Date() };
+                            }
+                            return { ...session, lastUpdatedAt: new Date() };
+                        });
+                        const sessionAfterUnexpectedEnd = useActiveChatStore.getState().currentChatSession;
+                        if (sessionAfterUnexpectedEnd) {
+                            await updateMessages(sessionAfterUnexpectedEnd.id, sessionAfterUnexpectedEnd.messages);
                         }
-                        pendingMessageIdRef = null; originalMessageSnapshotRef = null;
+                    } else {
+                        await updateCurrentChatSession(session => session ? { ...session, lastUpdatedAt: new Date() } : null);
                     }
-                    if (abortControllerRef && currentPendingMsgIdForComplete === modelMessageId) abortControllerRef = null;
-                    if (currentPendingMsgIdForComplete === modelMessageId) requestCancelledByUserRef = false;
-                    onFullResponseCalledForPendingMessageRef = false;
-                    resolve(); // Resolve the promise here
-                },
-                logApiRequestDirectly, abortControllerRef.signal, settingsOverrideForAPICall,
-                currentChatSession.aiCharacters, currentChatSession.githubRepoContext?.contextText
-            );
-        });
+                    pendingMessageIdRef = null; originalMessageSnapshotRef = null;
+                }
+                if (abortControllerRef && currentPendingMsgIdForComplete === modelMessageId) abortControllerRef = null;
+                if (currentPendingMsgIdForComplete === modelMessageId) requestCancelledByUserRef = false;
+                onFullResponseCalledForPendingMessageRef = false;
+            },
+            logApiRequestDirectly, abortControllerRef.signal, settingsOverrideForAPICall,
+            currentChatSession.aiCharacters, currentChatSession.githubRepoContext?.contextText
+        );
       };
 
     const handleContinueFlow = async () => {
         const { currentChatSession } = useActiveChatStore.getState();
-        const { rotateActiveKey } = useApiKeyStore.getState();
+        const { activeApiKey, rotateActiveKey } = useApiKeyStore.getState();
+        const { updateMessages } = useDataStore.getState();
+
         if (!currentChatSession || get().isLoading || currentChatSession.isCharacterModeActive) return;
         if (currentChatSession.messages.length === 0) return;
 
-        const keyToUse = await rotateActiveKey();
-        if (!keyToUse?.value) {
-             await useActiveChatStore.getState().updateCurrentChatSession(session => session ? ({ ...session, messages: [...session.messages, {id: `err-${Date.now()}`, role: ChatMessageRole.ERROR, content: "No API key available for Continue Flow.", timestamp: new Date()}]}) : null);
-             return;
-        }
-
+        await rotateActiveKey();
         requestCancelledByUserRef = false;
         
         const { settings, model, messages } = currentChatSession;
@@ -280,7 +299,7 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
             try {
                 const historyForMimic = mapMessagesToFlippedRoleGeminiHistory(messages, settings);
                 const mimicContent = await generateMimicUserResponse(
-                    keyToUse.value, model, historyForMimic, settings.userPersonaInstruction || '',
+                    activeApiKey?.value || '', model, historyForMimic, settings.userPersonaInstruction || '',
                     settings, logApiRequestDirectly, abortControllerRef.signal
                 );
                 if (requestCancelledByUserRef) return;
@@ -291,6 +310,8 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
                 console.error("Error during Continue Flow (user mimic):", error);
                 const errorMessage = `Flow generation failed: ${error.message}`;
                 await useActiveChatStore.getState().updateCurrentChatSession(session => session ? ({ ...session, messages: [...session.messages, {id: `err-${Date.now()}`, role: ChatMessageRole.ERROR, content: errorMessage, timestamp: new Date()}]}) : null);
+                const sessionAfterError = useActiveChatStore.getState().currentChatSession;
+                if (sessionAfterError) await updateMessages(sessionAfterError.id, sessionAfterError.messages);
                 setIsLoading(false);
             }
         } else {
@@ -299,19 +320,19 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
     };
 
     const handleRegenerateAIMessage = async (aiMessageIdToRegenerate: string) => {
-        const { rotateActiveKey } = useApiKeyStore.getState();
+        const { activeApiKey, rotateActiveKey } = useApiKeyStore.getState();
         const { currentChatSession, updateCurrentChatSession } = useActiveChatStore.getState();
-        const { setMessageGenerationTimes } = useDataStore.getState();
+        const { setMessageGenerationTimes, updateMessages } = useDataStore.getState();
 
         if (!currentChatSession || get().isLoading) return;
-        
-        const keyToUse = await rotateActiveKey();
-        if (!keyToUse?.value) {
-            updateCurrentChatSession(session => {
+        if (!activeApiKey?.value) {
+            await updateCurrentChatSession(session => {
                 if (!session) return null;
                 const errorMessage: ChatMessage = { id: `err-${Date.now()}`, role: ChatMessageRole.ERROR, content: "No API key set. Please go to Settings > API Key to set your key.", timestamp: new Date() };
                 return { ...session, messages: [...session.messages, errorMessage] };
             });
+            const sessionAfterError = useActiveChatStore.getState().currentChatSession;
+            if(sessionAfterError) await updateMessages(sessionAfterError.id, sessionAfterError.messages);
             return;
         }
 
@@ -327,6 +348,7 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
         const userMessage = currentChatSession.messages[precedingUserMessageIndex];
         const historyForGeminiSDK = getHistoryUpToMessage(currentChatSession.messages, precedingUserMessageIndex);
         
+        await rotateActiveKey();
         requestCancelledByUserRef = false;
         onFullResponseCalledForPendingMessageRef = false;
         originalMessageSnapshotRef = null;
@@ -352,6 +374,9 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
             );
             return { ...session, messages: newMessages };
         });
+        
+        const sessionAfterPlaceholder = useActiveChatStore.getState().currentChatSession;
+        if (sessionAfterPlaceholder) await updateMessages(sessionAfterPlaceholder.id, sessionAfterPlaceholder.messages);
 
         const finalUserMessageInputForAPI: UserMessageInput = { text: userMessage.content, attachments: userMessage.attachments || [] };
         const baseSettingsForAPICall = { ...currentChatSession.settings };
@@ -366,7 +391,7 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
         }
 
         await getFullChatResponse(
-            keyToUse.value, 
+            activeApiKey?.value || '', 
             currentChatSession.id, 
             finalUserMessageInputForAPI, 
             currentChatSession.model, 
@@ -387,6 +412,9 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
                 
                 await updateCurrentChatSession(session => session ? ({...session, messages: session.messages.map(msg => msg.id === aiMessageIdToRegenerate ? newAiMessage : msg)}) : null);
                 
+                const sessionAfterResponse = useActiveChatStore.getState().currentChatSession;
+                if (sessionAfterResponse) await updateMessages(sessionAfterResponse.id, sessionAfterResponse.messages);
+
                 const { triggerAutoPlayForNewMessage } = useAudioStore.getState();
                 await triggerAutoPlayForNewMessage(newAiMessage);
             },
@@ -395,6 +423,10 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
                 onFullResponseCalledForPendingMessageRef = false;
                 const finalErrorMessage = isAbortError ? `Response aborted.` : `Response failed: ${errorMsg}`;
                 await updateCurrentChatSession(session => session ? ({ ...session, messages: session.messages.map(msg => msg.id === aiMessageIdToRegenerate ? { ...msg, isStreaming: false, role: ChatMessageRole.ERROR, content: finalErrorMessage } : msg)}) : null);
+                
+                const sessionAfterError = useActiveChatStore.getState().currentChatSession;
+                if (sessionAfterError) await updateMessages(sessionAfterError.id, sessionAfterError.messages);
+
                 if (!requestCancelledByUserRef && pendingMessageIdRef === aiMessageIdToRegenerate) { setIsLoading(false); }
             },
             async () => {
@@ -412,6 +444,8 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
                             }
                             return { ...session, lastUpdatedAt: new Date() };
                         });
+                        const sessionAfterUnexpectedEnd = useActiveChatStore.getState().currentChatSession;
+                        if (sessionAfterUnexpectedEnd) await updateMessages(sessionAfterUnexpectedEnd.id, sessionAfterUnexpectedEnd.messages);
                     } else {
                         await updateCurrentChatSession(session => session ? { ...session, lastUpdatedAt: new Date() } : null);
                     }
@@ -442,45 +476,55 @@ export const useGeminiApiStore = create<GeminiApiState & GeminiApiActions>((set,
         await handleRegenerateAIMessage(aiMessageToRegenerate.id);
     };
 
-    const handleEditPanelSubmit = async (action: EditMessagePanelAction, newContent: string, editingMessageDetail: EditMessagePanelDetails) => {
+    const handleEditPanelSubmit = async (action: EditMessagePanelAction, newContent: string, editingMessageDetail: EditMessagePanelDetails, newAttachments: Attachment[] = []) => {
         const { updateCurrentChatSession, currentChatSession } = useActiveChatStore.getState();
+        const { updateMessages } = useDataStore.getState();
         const { messageId } = editingMessageDetail;
         if(!currentChatSession) return;
         
         const messageIndex = currentChatSession.messages.findIndex(m => m.id === messageId);
         if (messageIndex === -1) return;
+        
+        const originalMessage = currentChatSession.messages[messageIndex];
+        const combinedAttachments = [...(originalMessage.attachments || []), ...newAttachments];
 
         if (action === EditMessagePanelAction.SAVE_AND_SUBMIT) {
-            const updatedUserMessage = { ...currentChatSession.messages[messageIndex], content: newContent, cachedAudioBuffers: null };
+            const updatedUserMessage = { ...originalMessage, content: newContent, attachments: combinedAttachments, cachedAudioBuffers: null };
             const historyBeforeEdit = currentChatSession.messages.slice(0, messageIndex);
             
             await updateCurrentChatSession(session => session ? ({...session, messages: [...historyBeforeEdit, updatedUserMessage]}) : null);
             
             const sessionAfterUpdate = useActiveChatStore.getState().currentChatSession;
+            if (sessionAfterUpdate) await updateMessages(sessionAfterUpdate.id, sessionAfterUpdate.messages);
+
             if(sessionAfterUpdate) {
                 await get().handleSendMessage(newContent, updatedUserMessage.attachments, historyBeforeEdit);
             }
 
         } else if (action === EditMessagePanelAction.CONTINUE_PREFIX) {
-            const originalMessage = { ...currentChatSession.messages[messageIndex], content: newContent, isStreaming: false, cachedAudioBuffers: null };
+            const messageWithNewContent = { ...originalMessage, content: newContent, attachments: combinedAttachments, isStreaming: false, cachedAudioBuffers: null };
             const historyContext = getHistoryUpToMessage(currentChatSession.messages, messageIndex);
             
             pendingMessageIdRef = messageId;
-            originalMessageSnapshotRef = originalMessage;
+            originalMessageSnapshotRef = messageWithNewContent;
 
-            await updateCurrentChatSession(session => session ? ({...session, messages: session.messages.map(m => m.id === messageId ? {...originalMessage, isStreaming: true} : m)}) : null);
+            await updateCurrentChatSession(session => session ? ({...session, messages: session.messages.map(m => m.id === messageId ? {...messageWithNewContent, isStreaming: true} : m)}) : null);
+            const sessionAfterUpdate = useActiveChatStore.getState().currentChatSession;
+            if (sessionAfterUpdate) await updateMessages(sessionAfterUpdate.id, sessionAfterUpdate.messages);
 
             await get().handleSendMessage(
-                newContent, [], historyContext, undefined, true
+                newContent, combinedAttachments, historyContext, undefined, true
             );
         } else if (action === EditMessagePanelAction.SAVE_LOCALLY) {
             await updateCurrentChatSession(session => {
                 if (!session) return null;
                 const newMessages = session.messages.map(msg => 
-                    msg.id === messageId ? { ...msg, content: newContent, cachedAudioBuffers: null } : msg
+                    msg.id === messageId ? { ...msg, content: newContent, attachments: combinedAttachments, cachedAudioBuffers: null } : msg
                 );
                 return { ...session, messages: newMessages };
             });
+            const sessionAfterUpdate = useActiveChatStore.getState().currentChatSession;
+            if (sessionAfterUpdate) await updateMessages(sessionAfterUpdate.id, sessionAfterUpdate.messages);
         }
     };
 

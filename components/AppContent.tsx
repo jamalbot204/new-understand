@@ -71,6 +71,13 @@ const AppContent: React.FC = memo(() => {
     const message = currentChatSession.messages.find(m => m.id === baseId);
     return message ? message.content : (audioPlayerState.currentPlayingText || "Playing audio...");
   }, [audioPlayerState, currentChatSession]);
+  
+  const handleEnterReadModeFromPlayer = useCallback(() => {
+    const content = getFullTextForAudioBar();
+    if (content) {
+        handleEnterReadMode(content);
+    }
+  }, [getFullTextForAudioBar, handleEnterReadMode]);
 
   const handleGoToAttachmentInChat = useCallback((messageId: string) => {
     modalStore.closeChatAttachmentsModal();
@@ -155,7 +162,8 @@ const AppContent: React.FC = memo(() => {
                   currentMessageText={getFullTextForAudioBar()}
                   onGoToMessage={handleGoToMessage}
                   onIncreaseSpeed={increaseSpeed} 
-                  onDecreaseSpeed={decreaseSpeed} 
+                  onDecreaseSpeed={decreaseSpeed}
+                  onEnterReadMode={handleEnterReadModeFromPlayer}
                 />
               </div>
           )}

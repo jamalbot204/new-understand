@@ -1,20 +1,17 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import { VitePWA } from 'vite-plugin-pwa';
-import { pwaOptions } from './pwa.options';
+import path from 'path';
+import { defineConfig, loadEnv } from 'vite';
 
-// https://vitejs.dev/config/
-export default defineConfig({
-  plugins: [react(), VitePWA(pwaOptions)],
-  build: {
-    rollupOptions: {
-      output: {
-        manualChunks: {
-          'react-syntax-highlighter': ['react-syntax-highlighter'],
-          'framer-motion': ['framer-motion'],
-          'react-markdown': ['react-markdown'],
-        },
+export default defineConfig(({ mode }) => {
+    const env = loadEnv(mode, '.', '');
+    return {
+      define: {
+        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
       },
-    },
-  },
+      resolve: {
+        alias: {
+          '@': path.resolve(__dirname, '.'),
+        }
+      }
+    };
 });

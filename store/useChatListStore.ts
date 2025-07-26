@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { ChatSession, UserDefinedDefaults, Attachment, AICharacter } from '../types.ts';
 import * as dbService from '../services/dbService.ts';
@@ -109,7 +108,7 @@ export const useChatListStore = create<ChatListState>((set, get) => ({
     
     const newSessionId = `chat-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
     const newTitle = `${originalSession.title} (Copy)`;
-    const newMessages = originalSession.messages.map(msg => ({ ...msg, id: `msg-${Date.now()}-${msg.role}-${Math.random().toString(36).substring(2, 7)}`, attachments: msg.attachments?.map(att => ({ ...att, id: `file-${Date.now()}-${Math.random().toString(16).slice(2)}`, uploadState: (att.fileUri && att.uploadState === 'completed_cloud_upload') ? 'completed_cloud_upload' : (att.base64Data ? 'completed' : 'idle'), statusMessage: (att.fileUri && att.uploadState === 'completed_cloud_upload') ? 'Cloud file (copied)' : (att.base64Data ? 'Local data (copied)' : undefined), progress: undefined, error: undefined, isLoading: false })) as Attachment[] | undefined, cachedAudioBuffers: null, exportedMessageAudioBase64: undefined, timestamp: new Date(msg.timestamp) }));
+    const newMessages = originalSession.messages.map(msg => ({ ...msg, id: `msg-${Date.now()}-${msg.role}-${Math.random().toString(36).substring(2, 7)}`, attachments: msg.attachments?.map(att => ({ ...att, id: `file-${Date.now()}-${Math.random().toString(16).slice(2)}`, uploadState: (att.fileUri && att.uploadState === 'completed_cloud_upload') ? 'completed_cloud_upload' : (att.base64Data ? 'completed' : 'idle'), statusMessage: (att.fileUri && att.uploadState === 'completed_cloud_upload') ? 'Cloud file (copied)' : (att.base64Data ? 'Local data (copied)' : undefined), progress: undefined, error: undefined, isLoading: false })) as Attachment[] | undefined, cachedAudioBuffers: null, cachedAudioSegmentCount: undefined, ttsWordsPerSegmentCache: undefined, exportedMessageAudioBase64: undefined, timestamp: new Date(msg.timestamp) }));
     const newAiCharacters: AICharacter[] | undefined = originalSession.aiCharacters?.map(char => ({ ...char, id: `char-${Date.now()}-${Math.random().toString(36).substring(2, 9)}` }));
     const duplicatedSession: ChatSession = { ...originalSession, id: newSessionId, title: newTitle, messages: newMessages, aiCharacters: newAiCharacters, createdAt: new Date(), lastUpdatedAt: new Date(), apiRequestLogs: [], githubRepoContext: originalSession.githubRepoContext ? { ...originalSession.githubRepoContext } : null };
 

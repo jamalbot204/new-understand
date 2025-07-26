@@ -1,7 +1,7 @@
-
 import { create } from 'zustand';
 import { useActiveChatStore } from './useActiveChatStore.ts';
 import { useToastStore } from './useToastStore.ts';
+import { useDataStore } from './useDataStore.ts';
 
 interface ChatTitleEditingState {
   editingTitleInfo: {
@@ -24,10 +24,15 @@ export const useChatTitleStore = create<ChatTitleEditingState>((set, get) => ({
   saveChatTitle: async () => {
     const { editingTitleInfo, cancelEditingTitle } = get();
     const { updateCurrentChatSession } = useActiveChatStore.getState();
+    const { updateTitle } = useDataStore.getState();
     const showToast = useToastStore.getState().showToast;
 
     if (editingTitleInfo.id && editingTitleInfo.value.trim()) {
-      await updateCurrentChatSession(session => session ? ({ ...session, title: editingTitleInfo.value.trim() }) : null);
+      const newTitle = editingTitleInfo.value.trim();
+      // First, update the state for immediate UI feedback
+      await updateCurrentChatSession(session => session ? ({ ...session, title: newTitle }) : null);
+      // Then, persist only this specific change to the database
+      await updateTitle(editingTitleInfo.id, newTitle);
       showToast("Chat title updated!", "success");
     }
     cancelEditingTitle();

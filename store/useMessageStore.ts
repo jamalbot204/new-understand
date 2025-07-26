@@ -1,4 +1,3 @@
-
 import { create } from 'zustand';
 import { useActiveChatStore } from './useActiveChatStore';
 import { useDataStore } from './useDataStore';
@@ -69,7 +68,7 @@ export const useMessageStore = create<MessageStoreState & MessageStoreActions>((
 
   insertUserAiPairAfter: async (afterMessageId) => {
     const { updateCurrentChatSession } = useActiveChatStore.getState();
-    const { setMessagesToDisplayConfig } = useDataStore.getState();
+    const { setMessagesToDisplayConfig, updateMessages } = useDataStore.getState();
     const showToast = useToastStore.getState().showToast;
     const { openInjectedMessageEditModal } = useModalStore.getState();
     
@@ -125,6 +124,11 @@ export const useMessageStore = create<MessageStoreState & MessageStoreActions>((
       success = true; 
       return { ...session, messages: newMessages, lastUpdatedAt: new Date() };
     });
+
+    const updatedSession = useActiveChatStore.getState().currentChatSession;
+    if (updatedSession) {
+        await updateMessages(updatedSession.id, updatedSession.messages);
+    }
 
     if (success) {
       showToast("Empty message pair inserted.", "success");

@@ -1,6 +1,3 @@
-
-
-
 import React, { useState, useEffect, useMemo, memo, useCallback } from 'react';
 import { useModalStore } from '../store/useModalStore.ts';
 import { GeminiSettings, SafetySetting } from '../types.ts';
@@ -16,6 +13,7 @@ import { useToastStore } from '../store/useToastStore.ts';
 import { useActiveChatStore } from '../store/useActiveChatStore.ts';
 import { useGithubStore } from '../store/useGithubStore.ts';
 import { useInteractionStore } from '../store/useInteractionStore.ts';
+import { useDataStore } from '../store/useDataStore.ts';
 
 const InstructionButton: React.FC<{
     label: string; value: string | undefined; onClick: () => void; placeholder: string;
@@ -35,7 +33,7 @@ const SettingsPanel: React.FC = memo(() => {
     const { clearChatCache } = useInteractionStore();
     const { setGithubRepo } = useGithubStore();
     const modalStore = useModalStore();
-    const showToast = useToastStore(state => state.showToast);
+    const showToast = useToastStore.getState().showToast;
 
     const [localSettings, setLocalSettings] = useState<GeminiSettings>(currentChatSession?.settings || DEFAULT_SETTINGS);
     const [localModel, setLocalModel] = useState<string>(currentChatSession?.model || DEFAULT_MODEL_ID);
@@ -114,9 +112,16 @@ const SettingsPanel: React.FC = memo(() => {
 
     const handleSubmit = useCallback(() => {
         if (!currentChatSession) return;
+        const { updateSettings, updateModel } = useDataStore.getState();
+        // First, update the state locally for immediate UI feedback
         updateCurrentChatSession(session => session ? ({ ...session, settings: localSettings, model: localModel }) : null);
+        
+        // Then, persist the changes to the database granularly
+        updateSettings(currentChatSession.id, localSettings);
+        updateModel(currentChatSession.id, localModel);
+        
         modalStore.closeSettingsPanel();
-    }, [updateCurrentChatSession, currentChatSession, localSettings, localModel, modalStore.closeSettingsPanel]);
+    }, [updateCurrentChatSession, currentChatSession, localSettings, localModel, modalStore]);
     
     const handleMakeDefaults = useCallback(async () => {
         await dbService.setAppMetadata(METADATA_KEYS.USER_DEFINED_GLOBAL_DEFAULTS, {

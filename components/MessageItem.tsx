@@ -1,9 +1,3 @@
-
-
-
-
-
-
 import React, { useState, useEffect, useRef, memo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -155,11 +149,10 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({ message, canRegenera
     }
   }
 
-  const actualMaxWords = currentChatSession?.settings?.ttsSettings?.maxWordsPerSegment ?? MAX_WORDS_PER_TTS_SEGMENT;
-  const textSegmentsForTts = splitTextForTts(displayContent, actualMaxWords);
-  const numExpectedTtsParts = textSegmentsForTts.length;
-  const hasAnyCachedAudio = message.cachedAudioBuffers && message.cachedAudioBuffers.some(buffer => !!buffer);
-  const allTtsPartsCached = hasAnyCachedAudio && message.cachedAudioBuffers && message.cachedAudioBuffers.length === numExpectedTtsParts && message.cachedAudioBuffers.every(buffer => !!buffer);
+  const maxWordsForThisMessage = message.ttsWordsPerSegmentCache ?? currentChatSession?.settings?.ttsSettings?.maxWordsPerSegment ?? MAX_WORDS_PER_TTS_SEGMENT;
+  const textSegmentsForTts = splitTextForTts(displayContent, maxWordsForThisMessage);
+  const hasAnyCachedAudio = !!message.cachedAudioSegmentCount && message.cachedAudioSegmentCount > 0;
+  const allTtsPartsCached = hasAnyCachedAudio && message.cachedAudioSegmentCount === textSegmentsForTts.length;
   const isLongTextContent = displayContent.trim().length > MESSAGE_CONTENT_SNIPPET_THRESHOLD;
   const contentToRender = (isLongTextContent && !isContentExpanded) ? displayContent.trim().substring(0, MESSAGE_CONTENT_SNIPPET_THRESHOLD) + "..." : displayContent;
 
@@ -285,26 +278,27 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({ message, canRegenera
   const groundingChunks = message.groundingMetadata?.groundingChunks;
 
   const getAudioStateForSegment = (baseMessageId: string, partIdx?: number) => {
-    const segmentId = partIdx !== undefined ? `${baseMessageId}_part_${partIdx}` : baseMessageId;
+    const isSinglePartForMainButton = partIdx === undefined && textSegmentsForTts.length === 1;
+    const finalPartIdx = isSinglePartForMainButton ? 0 : partIdx;
+    const segmentId = finalPartIdx !== undefined ? `${baseMessageId}_part_${finalPartIdx}` : baseMessageId;
+    
     const isCurrentPlayerTarget = audio.audioPlayerState.currentMessageId === segmentId;
     const segmentFetchErr = audio.getSegmentFetchError(segmentId);
-    let isCached = false;
-    if (partIdx !== undefined) isCached = !!message.cachedAudioBuffers?.[partIdx];
-    else { if (numExpectedTtsParts > 1) isCached = !!allTtsPartsCached; else isCached = !!message.cachedAudioBuffers?.[0]; }
+    const isCached = message.cachedAudioBuffers?.[finalPartIdx ?? 0] != null;
     return { uniqueSegmentId: segmentId, isCurrentAudioPlayerTarget: isCurrentPlayerTarget, isAudioPlayingForThisSegment: isCurrentPlayerTarget && audio.audioPlayerState.isPlaying, isAudioLoadingForPlayer: isCurrentPlayerTarget && audio.audioPlayerState.isLoading, hasAudioErrorForThisSegment: (isCurrentPlayerTarget && !!audio.audioPlayerState.error) || !!segmentFetchErr, audioErrorMessage: segmentFetchErr || (isCurrentPlayerTarget ? audio.audioPlayerState.error : null), isAudioReadyToPlayFromCacheForSegment: isCached && !(isCurrentPlayerTarget && audio.audioPlayerState.isPlaying) && !(isCurrentPlayerTarget && audio.audioPlayerState.isLoading) && !segmentFetchErr };
   };
   const { hasAudioErrorForThisSegment: hasErrorOverall, audioErrorMessage: overallAudioErrorMessage } = getAudioStateForSegment(message.id);
-  const isAnyAudioOperationActiveForMessage = message.isStreaming || audio.isMainButtonMultiFetchingApi(message.id) || textSegmentsForTts.some((_, partIdx) => audio.isApiFetchingThisSegment(`${message.id}_part_${partIdx}`)) || (numExpectedTtsParts <= 1 && audio.isApiFetchingThisSegment(message.id)) || (audio.audioPlayerState.currentMessageId?.startsWith(message.id) && (audio.audioPlayerState.isLoading || audio.audioPlayerState.isPlaying));
+  const isAnyAudioOperationActiveForMessage = message.isStreaming || audio.isMainButtonMultiFetchingApi(message.id) || textSegmentsForTts.some((_, partIdx) => audio.isApiFetchingThisSegment(`${message.id}_part_${partIdx}`)) || (textSegmentsForTts.length <= 1 && audio.isApiFetchingThisSegment(message.id)) || (audio.audioPlayerState.currentMessageId?.startsWith(message.id) && (audio.audioPlayerState.isLoading || audio.audioPlayerState.isPlaying));
 
   const renderPlayButtonForSegment = (partIndexInput?: number) => {
     const isMainContextButton = partIndexInput === undefined;
     const segmentState = getAudioStateForSegment(message.id, partIndexInput);
     let IconComponent = SpeakerWaveIcon, iconClassName = segmentState.isAudioReadyToPlayFromCacheForSegment ? 'text-green-400' : 'text-gray-300', title = segmentState.isAudioReadyToPlayFromCacheForSegment ? `Play cached` : `Play message`, isDisabled = false, isPulsing = false;
-    if (isMainContextButton) title = allTtsPartsCached && numExpectedTtsParts > 1 ? "Play All Cached Parts" : (numExpectedTtsParts > 1 ? "Fetch & Prepare All Parts" : (segmentState.isAudioReadyToPlayFromCacheForSegment ? "Play Cached" : "Fetch & Play"));
+    if (isMainContextButton) title = allTtsPartsCached && textSegmentsForTts.length > 1 ? "Play All Cached Parts" : (textSegmentsForTts.length > 1 ? "Fetch & Prepare All Parts" : (segmentState.isAudioReadyToPlayFromCacheForSegment ? "Play Cached" : "Fetch & Play"));
     else if (partIndexInput !== undefined) title = `Part ${partIndexInput + 1}: ${segmentState.isAudioReadyToPlayFromCacheForSegment ? "Play cached" : "Play part"}`;
     const isThisSegmentIndividuallyFetching = audio.isApiFetchingThisSegment(segmentState.uniqueSegmentId);
     const isThisTheMainButtonOverallFetching = isMainContextButton && audio.isMainButtonMultiFetchingApi(message.id);
-    if (isThisTheMainButtonOverallFetching) { IconComponent = XCircleIcon; iconClassName = 'text-red-400 hover:text-red-300'; title = `Cancel fetching ${numExpectedTtsParts} audio parts`; isPulsing = true;
+    if (isThisTheMainButtonOverallFetching) { IconComponent = XCircleIcon; iconClassName = 'text-red-400 hover:text-red-300'; title = `Cancel fetching ${textSegmentsForTts.length} audio parts`; isPulsing = true;
     } else if (isThisSegmentIndividuallyFetching && !isMainContextButton) { IconComponent = XCircleIcon; iconClassName = 'text-red-400 hover:text-red-300'; title = `Cancel audio fetch for Part ${partIndexInput! + 1}`; isPulsing = true;
     } else if (segmentState.isAudioPlayingForThisSegment) { IconComponent = PauseIcon; iconClassName = 'text-orange-400'; title = isMainContextButton ? "Pause" : `Pause Part ${partIndexInput! + 1}`;
     } else if (segmentState.isAudioLoadingForPlayer) { IconComponent = SpeakerWaveIcon; isPulsing = true; isDisabled = true; title = isMainContextButton ? "Loading audio..." : `Loading Part ${partIndexInput! + 1}...`; iconClassName = 'text-blue-400';
@@ -312,7 +306,7 @@ const MessageItemComponent: React.FC<MessageItemProps> = ({ message, canRegenera
     const clickHandler = isMainContextButton ? handleMasterPlayButtonClick : () => handlePartPlayButtonClick(partIndexInput!);
     return (<button onClick={clickHandler} title={title} aria-label={title} className={`p-1.5 text-gray-300 rounded-md bg-black bg-opacity-20 transition-shadow focus:outline-none focus:ring-2 ring-[var(--aurora-accent-primary)] hover:text-white hover:shadow-[0_0_8px_1px_rgba(34,197,94,0.6)] ${iconClassName} ${isPulsing ? 'animate-pulse' : ''}`} disabled={isDisabled || isSelectionModeActive}>{<IconComponent className="w-4 h-4" />}{partIndexInput !== undefined && <span className="text-xs ml-1">P{partIndexInput+1}</span>}</button>);
   };
-  const showIndividualPartControls = numExpectedTtsParts > 1 && allTtsPartsCached;
+  const showIndividualPartControls = textSegmentsForTts.length > 1 && allTtsPartsCached;
 
   return (
     <div id={`message-item-${message.id}`} className={`group flex items-start mb-1 w-full relative transition-colors duration-200 ${isSelected ? 'bg-blue-900/40 rounded-md' : ''} ${isSelectionModeActive ? 'cursor-pointer' : ''} ${layoutClasses} message-item-root ${isOptionsMenuOpen ? 'menu-open' : ''}`} onClick={() => isSelectionModeActive && toggleMessageSelection(message.id)} role="listitem">

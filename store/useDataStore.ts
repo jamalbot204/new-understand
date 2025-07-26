@@ -1,8 +1,5 @@
-
-
-
 import { create } from 'zustand';
-import { ChatSession, ExportConfiguration, Attachment, ChatMessage, ApiRequestLog, ApiKey, UserDefinedDefaults } from '../types.ts';
+import { ChatSession, ExportConfiguration, Attachment, ChatMessage, ApiRequestLog, ApiKey, UserDefinedDefaults, GeminiSettings, AICharacter } from '../types.ts';
 import * as dbService from '../services/dbService';
 import { METADATA_KEYS } from '../services/dbService.ts';
 import { DEFAULT_EXPORT_CONFIGURATION, INITIAL_MESSAGES_COUNT, DEFAULT_SETTINGS, DEFAULT_SAFETY_SETTINGS, DEFAULT_TTS_SETTINGS } from '../constants.ts';
@@ -24,21 +21,28 @@ interface DataStoreState {
   setCurrentExportConfig: (newConfig: ExportConfiguration) => Promise<void>;
   setMessageGenerationTimes: (updater: Record<string, number> | ((prev: Record<string, number>) => Record<string, number>)) => Promise<void>;
   handleManualSave: (isSilent?: boolean) => Promise<void>;
-  saveSingleSession: (session: ChatSession) => Promise<void>;
   
   // Import/Export Actions
   handleExportChats: (chatIdsToExport: string[], exportConfig: ExportConfiguration) => Promise<void>;
   handleImportAll: () => Promise<void>;
+
+  // New Granular Persistence API
+  updateTitle: (chatId: string, newTitle: string) => Promise<void>;
+  updateMessages: (chatId: string, newMessages: ChatMessage[]) => Promise<void>;
+  updateSettings: (chatId: string, newSettings: GeminiSettings) => Promise<void>;
+  updateModel: (chatId: string, newModel: string) => Promise<void>;
+  updateCharacters: (chatId: string, newCharacters: AICharacter[]) => Promise<void>;
+  updateGithubContext: (chatId: string, newContext: ChatSession['githubRepoContext']) => Promise<void>;
 }
 
-const transformImportedData = (importedRawData: any): {
+const transformImportedData = async (importedRawData: any): Promise<{
     sessions: ChatSession[],
     generationTimes: Record<string, number>,
     displayConfig: Record<string,number>,
     activeChatId?: string | null,
     exportConfiguration?: ExportConfiguration,
     apiKeys?: ApiKey[],
-  } => {
+  }> => {
     const importedGenerationTimes: Record<string, number> =
       (importedRawData?.data?.messageGenerationTimes && typeof importedRawData.data.messageGenerationTimes === 'object')
       ? importedRawData.data.messageGenerationTimes : {};
@@ -71,17 +75,18 @@ const transformImportedData = (importedRawData: any): {
 
 
     if (importedRawData?.data?.chats) { 
+        const audioWritePromises: Promise<void>[] = [];
+        
         const sessions: ChatSession[] = importedRawData.data.chats.map((s: any) => ({
             ...s,
             createdAt: new Date(s.createdAt),
             lastUpdatedAt: new Date(s.lastUpdatedAt),
             messages: s.messages.map((m: any) => {
-                const importedMessage: Partial<ChatMessage> = {
+                const importedMessage: Partial<ChatMessage> & { cachedAudioBuffers?: any } = {
                     ...m,
                     timestamp: new Date(m.timestamp),
                     groundingMetadata: m.groundingMetadata || undefined,
                     characterName: m.characterName || undefined, 
-                    cachedAudioBuffers: null, // Initialize
                 };
 
                 // Import attachments
@@ -122,30 +127,41 @@ const transformImportedData = (importedRawData: any): {
                     importedMessage.attachments = undefined;
                 }
                 
-                // Import cached message audio
-                if (m.exportedMessageAudioBase64 && Array.isArray(m.exportedMessageAudioBase64)) {
-                    const audioBuffers: (ArrayBuffer | null)[] = (m.exportedMessageAudioBase64 as string[]).map(base64String => {
-                        if (typeof base64String === 'string') {
+                // Import cached message audio (both old and new formats)
+                const audioBase64Array = m.exportedMessageAudioBase64 || [];
+                let audioBuffers: (ArrayBuffer | null)[] = [];
+                if (m.cachedAudioBuffers && Array.isArray(m.cachedAudioBuffers)) { // Old format
+                    audioBuffers = m.cachedAudioBuffers.map(b => b ? b : null);
+                } else if (audioBase64Array.length > 0) { // New format
+                    audioBuffers = audioBase64Array.map((base64String: string | null) => {
+                         if (typeof base64String === 'string') {
                             try {
                                 const binary_string = window.atob(base64String);
                                 const len = binary_string.length;
                                 const bytes = new Uint8Array(len);
-                                for (let i = 0; i < len; i++) {
-                                    bytes[i] = binary_string.charCodeAt(i);
-                                }
+                                for (let i = 0; i < len; i++) { bytes[i] = binary_string.charCodeAt(i); }
                                 return bytes.buffer;
                             } catch (e) {
-                                console.error("Failed to decode base64 audio string during import for message:", m.id, e);
+                                console.error("Failed to decode base64 audio string during import:", m.id, e);
                                 return null;
                             }
                         }
                         return null;
                     });
-                    if (audioBuffers.some(b => b !== null)) {
-                        importedMessage.cachedAudioBuffers = audioBuffers;
+                }
+
+                if (audioBuffers.length > 0) {
+                    const validBuffers = audioBuffers.filter(b => b !== null);
+                    if (validBuffers.length > 0) {
+                        importedMessage.cachedAudioSegmentCount = validBuffers.length;
+                        validBuffers.forEach((buffer, index) => {
+                            if(buffer) audioWritePromises.push(dbService.setAudioBuffer(`${m.id}_part_${index}`, buffer));
+                        });
                     }
                 }
+                
                 delete importedMessage.exportedMessageAudioBase64; // Clean up temporary field
+                delete importedMessage.cachedAudioBuffers; // Clean up old field
 
                 return importedMessage as ChatMessage;
             }),
@@ -167,6 +183,9 @@ const transformImportedData = (importedRawData: any): {
                 timestamp: new Date(log.timestamp)
             })),                   
         }));
+
+        await Promise.all(audioWritePromises);
+
         return { 
             sessions, 
             generationTimes: importedGenerationTimes, 
@@ -219,8 +238,6 @@ export const useDataStore = create<DataStoreState>((set, get) => ({
   setMessagesToDisplayConfig: async (updater) => {
     const newConfig = typeof updater === 'function' ? updater(get().messagesToDisplayConfig) : updater;
     set({ messagesToDisplayConfig: newConfig });
-    // This is now saved via auto-save, so direct DB call can be removed if desired,
-    // but keeping it makes the action atomic and reliable.
     await dbService.setAppMetadata(METADATA_KEYS.MESSAGES_TO_DISPLAY_CONFIG, newConfig);
   },
 
@@ -252,17 +269,6 @@ export const useDataStore = create<DataStoreState>((set, get) => ({
         chatToDelete.messages.forEach(msg => delete newGenTimes[msg.id]);
         set({ messageGenerationTimes: newGenTimes });
         await dbService.setAppMetadata(METADATA_KEYS.MESSAGE_GENERATION_TIMES, newGenTimes);
-    }
-  },
-
-  saveSingleSession: async (session) => {
-    try {
-      await dbService.addOrUpdateChatSession(session);
-    } catch (error) {
-      console.error("Failed to save single session:", error);
-      // Do not show a toast for this background operation.
-      // Re-throw to allow callers to handle if necessary, though in our case it's fire-and-forget.
-      throw error;
     }
   },
 
@@ -311,23 +317,31 @@ export const useDataStore = create<DataStoreState>((set, get) => ({
         return;
     }
     
-    // The rest of the export logic is identical to the one in the original hook
     let sessionsForExport: Partial<ChatSession>[] = [];
     if (exportConfig.includeChatSessionsAndMessages) {
-        sessionsForExport = sessionsToProcess.map(session => {
+        sessionsForExport = await Promise.all(sessionsToProcess.map(async session => {
              const sessionWithUpToDateTTS: ChatSession = { ...session, settings: { ...session.settings, ttsSettings: session.settings.ttsSettings || { ...DEFAULT_TTS_SETTINGS } }, apiRequestLogs: session.apiRequestLogs || [] };
             let processedSession: Partial<ChatSession> = { ...sessionWithUpToDateTTS };
             
             if (!exportConfig.includeApiLogs) delete processedSession.apiRequestLogs;
             else processedSession.apiRequestLogs = (sessionWithUpToDateTTS.apiRequestLogs || []).map(log => ({ ...log, timestamp: new Date(log.timestamp) })) as ApiRequestLog[];
 
-            processedSession.messages = sessionWithUpToDateTTS.messages.map(message => {
+            processedSession.messages = await Promise.all(sessionWithUpToDateTTS.messages.map(async message => {
                 let processedMessage: Partial<ChatMessage> = { ...message };
-                if (exportConfig.includeCachedMessageAudio && message.cachedAudioBuffers?.length) {
-                    const validAudioStrings = message.cachedAudioBuffers.map(b => b ? window.btoa(new Uint8Array(b).reduce((data, byte) => data + String.fromCharCode(byte), '')) : null).filter(s => s !== null) as string[];
+                if (exportConfig.includeCachedMessageAudio && message.cachedAudioSegmentCount && message.cachedAudioSegmentCount > 0) {
+                    const audioFetchPromises: Promise<ArrayBuffer | undefined>[] = [];
+                    for(let i = 0; i < message.cachedAudioSegmentCount; i++) {
+                        audioFetchPromises.push(dbService.getAudioBuffer(`${message.id}_part_${i}`));
+                    }
+                    const audioBuffers = await Promise.all(audioFetchPromises);
+                    const validAudioStrings = audioBuffers
+                        .map(b => b ? window.btoa(new Uint8Array(b).reduce((data, byte) => data + String.fromCharCode(byte), '')) : null)
+                        .filter(s => s !== null) as string[];
+
                     if(validAudioStrings.length > 0) processedMessage.exportedMessageAudioBase64 = validAudioStrings;
                 }
-                delete processedMessage.cachedAudioBuffers;
+                
+                delete processedMessage.cachedAudioSegmentCount;
                 if (!exportConfig.includeMessageContent) delete processedMessage.content;
                 if (!exportConfig.includeMessageTimestamps) delete processedMessage.timestamp;
                 if (!exportConfig.includeMessageRoleAndCharacterNames) { delete processedMessage.role; delete processedMessage.characterName; }
@@ -346,13 +360,13 @@ export const useDataStore = create<DataStoreState>((set, get) => ({
                     }
                 }
                 return processedMessage as ChatMessage;
-            });
+            }));
 
             if (!exportConfig.includeChatSpecificSettings) { delete processedSession.settings; delete processedSession.model; }
             else { processedSession.settings = { ...(processedSession.settings || DEFAULT_SETTINGS), ttsSettings: processedSession.settings?.ttsSettings || { ...DEFAULT_TTS_SETTINGS } }; }
             if (!exportConfig.includeAiCharacterDefinitions) delete processedSession.aiCharacters;
             return processedSession;
-        });
+        }));
     }
 
     const appStateForExport: {key: string, value: any}[] = [];
@@ -421,7 +435,7 @@ export const useDataStore = create<DataStoreState>((set, get) => ({
             return;
           }
 
-          const { sessions, generationTimes, displayConfig, activeChatId, exportConfiguration, apiKeys } = transformImportedData(importedRawData);
+          const { sessions, generationTimes, displayConfig, activeChatId, exportConfiguration, apiKeys } = await transformImportedData(importedRawData);
 
           if (sessions.length === 0 && !Object.keys(generationTimes).length && !activeChatId && !Object.keys(displayConfig).length) {
             showToast("Could not import: File empty or format unrecognized.", "error");
@@ -465,9 +479,58 @@ export const useDataStore = create<DataStoreState>((set, get) => ({
       }
     };
     
-    // Append to body and click to open file dialog
     document.body.appendChild(input);
     input.click();
+  },
+
+  // New Granular Persistence API
+  updateTitle: async (chatId, newTitle) => {
+    try {
+      await dbService.updateChatTitleInDB(chatId, newTitle);
+    } catch (e) {
+      console.error("Failed to update title in DB", e);
+      useToastStore.getState().showToast("Failed to save title change.", "error");
+    }
+  },
+  updateMessages: async (chatId, newMessages) => {
+    try {
+      await dbService.updateMessagesInDB(chatId, newMessages);
+    } catch (e) {
+      console.error("Failed to update messages in DB", e);
+      useToastStore.getState().showToast("Failed to save message changes.", "error");
+    }
+  },
+  updateSettings: async (chatId, newSettings) => {
+    try {
+      await dbService.updateSettingsInDB(chatId, newSettings);
+    } catch (e) {
+      console.error("Failed to update settings in DB", e);
+      useToastStore.getState().showToast("Failed to save settings.", "error");
+    }
+  },
+  updateModel: async (chatId, newModel) => {
+    try {
+      await dbService.updateModelInDB(chatId, newModel);
+    } catch (e) {
+      console.error("Failed to update model in DB", e);
+      useToastStore.getState().showToast("Failed to save model change.", "error");
+    }
+  },
+  updateCharacters: async (chatId, newCharacters) => {
+    try {
+      await dbService.updateCharactersInDB(chatId, newCharacters);
+    } catch (e) {
+      console.error("Failed to update characters in DB", e);
+      useToastStore.getState().showToast("Failed to save character changes.", "error");
+    }
+  },
+  updateGithubContext: async (chatId, newContext) => {
+    try {
+      await dbService.updateGithubContextInDB(chatId, newContext);
+    } catch (e) {
+      console.error("Failed to update GitHub context in DB", e);
+      useToastStore.getState().showToast("Failed to save GitHub context.", "error");
+    }
   },
 }));
 

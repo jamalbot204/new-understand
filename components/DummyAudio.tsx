@@ -1,36 +1,57 @@
-import React, { useRef, useEffect } from 'react';
-import { useDummyAudioStore } from '../store/useDummyAudioStore';
 
-// A tiny, silent WAV file encoded in base64. This is used to give the <audio> element a valid source.
-const SILENT_AUDIO_SRC = 'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA';
+import React, { useRef, useEffect, memo } from 'react';
+import { useDummyAudioStore } from '../store/useDummyAudioStore.ts';
 
-export const DummyAudio: React.FC = () => {
+// A silent, short WAV file encoded in base64.
+// This is used as the source for the dummy audio element.
+const SILENT_AUDIO_SRC = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBIAAAABAAEARKwAAIhYAQACABAAAABkYXRhAgAAAAEA";
+
+/**
+ * DummyAudio Component
+ *
+ * This component renders a hidden, looping <audio> element with a silent audio source.
+ * Its purpose is to act as a "proxy" for the browser's Media Session API and hardware media keys.
+ *
+ * Why is this needed?
+ * Browsers typically link hardware media keys (like play/pause on headphones) and the Media Session API
+ * to the playback state of a standard HTML <audio> or <video> element. Our application uses the
+ * Web Audio API for more advanced audio control, which is not directly tied to these browser features.
+ *
+ * By synchronizing the play/pause state of this silent, hidden <audio> element with our actual
+ * Web Audio API playback, we can ensure that the browser correctly recognizes our app as a media player.
+ * This allows users to control playback with their hardware media keys, improving the user experience.
+ */
+const DummyAudio: React.FC = memo(() => {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const setControls = useDummyAudioStore((state) => state.setControls);
+  const setAudioControls = useDummyAudioStore(state => state.setAudioControls);
 
   useEffect(() => {
     if (audioRef.current) {
-      // The component provides its play/pause methods to the global store
-      // so that other parts of the app can control it without direct coupling.
-      const controls = {
-        play: () => audioRef.current?.play().catch(e => {
-          // Autoplay restrictions can sometimes cause this to fail.
-          // We log it as a warning because the primary audio will still work.
-          console.warn("Dummy audio play() command failed. This can happen due to browser autoplay policies.", e);
-        }),
+      // Register the play and pause methods with the global store
+      // so they can be called from anywhere, particularly from the main audio store.
+      setAudioControls({
+        play: () => audioRef.current?.play().catch(e => console.warn("Dummy audio play failed:", e)),
         pause: () => audioRef.current?.pause(),
+      });
+
+      // Cleanup on unmount
+      return () => {
+        setAudioControls(null);
       };
-      setControls(controls);
     }
-  }, [setControls]);
+  }, [setAudioControls]);
 
   return (
     <audio
       ref={audioRef}
       src={SILENT_AUDIO_SRC}
       loop
-      style={{ display: 'none' }}
-      aria-hidden="true"
+      playsInline
+      hidden // Use the hidden attribute for better semantics
+      style={{ display: 'none' }} // Ensure it's not visible
+      aria-hidden="true" // Hide from assistive technologies
     />
   );
-};
+});
+
+export default DummyAudio;

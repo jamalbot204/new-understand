@@ -1,10 +1,10 @@
 
-
 import { create } from 'zustand';
 import { AudioPlayerState, ChatMessage } from '../types.ts';
 import { generateSpeech, playPcmAudio } from '../services/ttsService.ts';
 import { strictAbort } from '../services/cancellationService.ts';
 import * as audioUtils from '../services/audioUtils.ts';
+import * as dbService from '../services/dbService.ts';
 import { splitTextForTts, sanitizeFilename, triggerDownload } from '../services/utils.ts';
 import { MAX_WORDS_PER_TTS_SEGMENT, PLAYBACK_SPEEDS, APP_TITLE } from '../constants.ts';
 import { useSelectionStore } from './useSelectionStore.ts';
@@ -13,6 +13,7 @@ import { useModalStore } from './useModalStore.ts';
 import { useApiKeyStore } from './useApiKeyStore.ts';
 import { useActiveChatStore } from './useActiveChatStore.ts';
 import { useGeminiApiStore } from './useGeminiApiStore.ts';
+import { useDataStore } from './useDataStore.ts';
 import { useDummyAudioStore } from './useDummyAudioStore.ts';
 
 interface AudioState {
@@ -88,8 +89,7 @@ export const useAudioStore = create<AudioState & AudioActions>((set, get) => {
         navigator.mediaSession.playbackState = 'paused';
       }
     }
-    // Sync with dummy audio element for media key support
-    useDummyAudioStore.getState().pause();
+    useDummyAudioStore.getState().pauseDummyAudio();
   };
 
   const updateProgress = () => {
@@ -137,13 +137,12 @@ export const useAudioStore = create<AudioState & AudioActions>((set, get) => {
       segmentFetchErrors: new Map(state.segmentFetchErrors).set(uniqueSegmentId, undefined as any) // Clear error on successful play
     }));
 
+    useDummyAudioStore.getState().playDummyAudio();
+
     if (typeof navigator !== 'undefined' && 'mediaSession' in navigator) {
       navigator.mediaSession.metadata = new MediaMetadata({ title: textSegment, artist: APP_TITLE });
       navigator.mediaSession.playbackState = 'playing';
     }
-
-    // Sync with dummy audio element for media key support
-    useDummyAudioStore.getState().play();
 
     audioStartTime = audioContext.currentTime - (startTimeOffset / get().audioPlayerState.playbackRate);
     if (animationFrameId) cancelAnimationFrame(animationFrameId);
@@ -160,7 +159,7 @@ export const useAudioStore = create<AudioState & AudioActions>((set, get) => {
             const currentChatSession = useActiveChatStore.getState().currentChatSession;
             const message = currentChatSession?.messages.find(m => m.id === baseMessageId);
             if(message) {
-              const maxWords = currentChatSession?.settings.ttsSettings?.maxWordsPerSegment || MAX_WORDS_PER_TTS_SEGMENT;
+              const maxWords = message.ttsWordsPerSegmentCache ?? currentChatSession?.settings.ttsSettings?.maxWordsPerSegment ?? MAX_WORDS_PER_TTS_SEGMENT;
               const allTextSegments = splitTextForTts(message.content, maxWords);
               if (playedPartIndex + 1 < allTextSegments.length) {
                 get().handlePlayTextForMessage(message.content, baseMessageId, playedPartIndex + 1);
@@ -171,31 +170,6 @@ export const useAudioStore = create<AudioState & AudioActions>((set, get) => {
       }
     };
     audioSource.start(0, startTimeOffset);
-  };
-  
-  const handleCacheAudioForMessageCallback = async (uniqueSegmentId: string, audioBuffer: ArrayBuffer) => {
-      const { updateCurrentChatSession, currentChatSession } = useActiveChatStore.getState();
-      if (!currentChatSession?.id) return;
-
-      const parts = uniqueSegmentId.split('_part_');
-      const baseMessageId = parts[0];
-      const partIndex = parts.length > 1 ? parseInt(parts[1], 10) : 0;
-
-      await updateCurrentChatSession((session) => {
-          if (!session) return null;
-          const messageIndex = session.messages.findIndex(m => m.id === baseMessageId);
-          if (messageIndex === -1) return session;
-
-          const updatedMessages = [...session.messages];
-          const existingBuffers = updatedMessages[messageIndex].cachedAudioBuffers || [];
-          
-          const newBuffers = [...existingBuffers];
-          while (newBuffers.length <= partIndex) newBuffers.push(null);
-          newBuffers[partIndex] = audioBuffer;
-          
-          updatedMessages[messageIndex] = { ...updatedMessages[messageIndex], cachedAudioBuffers: newBuffers };
-          return { ...session, messages: updatedMessages };
-      });
   };
 
   const resumePlayback = async () => {
@@ -219,22 +193,14 @@ export const useAudioStore = create<AudioState & AudioActions>((set, get) => {
     activeMultiPartFetches: new Set(),
 
     init: () => {
-      if (typeof window !== 'undefined' /* && !audioContext */) { // Defer audio context creation
-        // audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      if (typeof window !== 'undefined' && !audioContext) {
+        audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         
         if ('mediaSession' in navigator) {
           navigator.mediaSession.setActionHandler('play', () => { get().togglePlayPause(); });
           navigator.mediaSession.setActionHandler('pause', () => { get().togglePlayPause(); });
-          navigator.mediaSession.setActionHandler('stop', () => { get().handleStopAndCancelAllForCurrentAudio(); });
           navigator.mediaSession.setActionHandler('seekbackward', (details) => { get().seekRelative(-(details.seekOffset || 10)); });
           navigator.mediaSession.setActionHandler('seekforward', (details) => { get().seekRelative(details.seekOffset || 10); });
-          // Placeholders for next/previous track functionality
-          try {
-            navigator.mediaSession.setActionHandler('previoustrack', () => { /* TODO: Implement logic to play previous message */ });
-            navigator.mediaSession.setActionHandler('nexttrack', () => { /* TODO: Implement logic to play next message */ });
-          } catch (e) {
-            console.warn("Could not set previoustrack/nexttrack handlers, this is expected in some environments.", e);
-          }
         }
       }
     },
@@ -250,120 +216,203 @@ export const useAudioStore = create<AudioState & AudioActions>((set, get) => {
     },
 
     handlePlayTextForMessage: async (originalFullText, baseMessageId, partIndexToPlay) => {
-        // JIT AudioContext Creation: Create the audio context on the first user gesture.
-        if (!audioContext) {
-          audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
-        }
-
-        const chat = useActiveChatStore.getState().currentChatSession;
+        const { currentChatSession, updateCurrentChatSession } = useActiveChatStore.getState();
         const { logApiRequest } = useGeminiApiStore.getState();
-  
-        if (!chat || !chat.settings?.ttsSettings || !originalFullText.trim()) {
-          useToastStore.getState().showToast("TTS settings or message not available.", "error");
-          return;
+        const { updateMessages } = useDataStore.getState(); // Get this once
+    
+        if (!currentChatSession || !currentChatSession.settings?.ttsSettings || !originalFullText.trim()) {
+            useToastStore.getState().showToast("TTS settings or message not available.", "error");
+            return;
         }
         if (audioContext?.state === 'suspended') await audioContext.resume();
-  
-        const ttsSettings = chat.settings.ttsSettings;
-        const maxWords = ttsSettings.maxWordsPerSegment || MAX_WORDS_PER_TTS_SEGMENT;
-        const textSegments = splitTextForTts(originalFullText, maxWords);
-        const numExpectedSegments = textSegments.length;
-
-        const targetSegmentId = partIndexToPlay !== undefined 
-            ? `${baseMessageId}_part_${partIndexToPlay}` 
-            : (numExpectedSegments > 1 ? `${baseMessageId}_part_0` : baseMessageId);
-
-        const { currentMessageId, isPlaying } = get().audioPlayerState;
-  
-        if (currentMessageId && currentMessageId !== targetSegmentId) {
-          get().handleStopAndCancelAllForCurrentAudio();
-        }
-  
-        const message = chat.messages.find(m => m.id === baseMessageId);
+    
+        const ttsSettings = currentChatSession.settings.ttsSettings;
+        const message = currentChatSession.messages.find(m => m.id === baseMessageId);
         if (!message) return;
-        
-        const allPartsAreCached = message.cachedAudioBuffers && message.cachedAudioBuffers.length === numExpectedSegments && message.cachedAudioBuffers.every(b => !!b);
-  
-        let needsApiCall = false;
-        if (partIndexToPlay !== undefined) {
-          const isPartCached = !!message.cachedAudioBuffers?.[partIndexToPlay];
-          if (!isPartCached) {
-              needsApiCall = true;
-          }
-        } else { // main button clicked
-            if (!allPartsAreCached) {
-                needsApiCall = true;
+
+        const maxWordsForThisMessage = message.ttsWordsPerSegmentCache ?? ttsSettings.maxWordsPerSegment;
+        const textSegments = splitTextForTts(originalFullText, maxWordsForThisMessage);
+    
+        const playSinglePart = async (partIndex: number) => {
+            const uniqueSegmentId = `${baseMessageId}_part_${partIndex}`;
+            const textSegment = textSegments[partIndex];
+            
+            let buffer = message.cachedAudioBuffers?.[partIndex] ?? null;
+
+            if (!buffer) {
+                buffer = await dbService.getAudioBuffer(uniqueSegmentId) || null;
+                if (buffer) {
+                    await updateCurrentChatSession(s => {
+                        if (!s) return null;
+                        const msgIndex = s.messages.findIndex(m => m.id === baseMessageId);
+                        if (msgIndex === -1) return s;
+                        const newMsgs = [...s.messages];
+                        const oldMsg = newMsgs[msgIndex];
+                        const newBuffers = [...(oldMsg.cachedAudioBuffers || [])];
+                        newBuffers[partIndex] = buffer;
+                        newMsgs[msgIndex] = { ...oldMsg, cachedAudioBuffers: newBuffers };
+                        return { ...s, messages: newMsgs };
+                    });
+                }
             }
-        }
-        
-        if (needsApiCall) {
-          await useApiKeyStore.getState().rotateActiveKey();
-        }
-  
-        const apiKey = useApiKeyStore.getState().activeApiKey?.value;
-  
-        if (needsApiCall && !apiKey) {
-          useToastStore.getState().showToast("API key not available for TTS.", "error");
-          return;
-        }
-        
-        if (partIndexToPlay !== undefined) {
-            const textSegmentToPlayNow = textSegments[partIndexToPlay];
-            if (!textSegmentToPlayNow) return;
-            const uniqueSegmentId = `${baseMessageId}_part_${partIndexToPlay}`;
-            const cachedBuffer = message.cachedAudioBuffers?.[partIndexToPlay];
-            if (cachedBuffer) {
-                if (isPlaying && currentMessageId === uniqueSegmentId) get().togglePlayPause();
-                else await startPlaybackInternal(cachedBuffer, 0, textSegmentToPlayNow, uniqueSegmentId);
+
+            if (buffer) {
+                await startPlaybackInternal(buffer, 0, textSegment, uniqueSegmentId);
             } else {
-              // Fetch logic
-              const controller = new AbortController();
-              activeFetchControllers.set(uniqueSegmentId, controller);
-              set(s => ({ fetchingSegmentIds: new Set(s.fetchingSegmentIds).add(uniqueSegmentId), audioPlayerState: {...s.audioPlayerState, isLoading: true, currentMessageId: uniqueSegmentId, currentPlayingText: textSegmentToPlayNow} }));
-              try {
-                const pcmData = await generateSpeech(apiKey!, textSegmentToPlayNow, ttsSettings, logApiRequest, controller.signal);
-                if (controller.signal.aborted) throw new DOMException('Aborted');
-                handleCacheAudioForMessageCallback(uniqueSegmentId, pcmData);
-                set(s => ({ fetchingSegmentIds: new Set([...s.fetchingSegmentIds].filter(id => id !== uniqueSegmentId)), audioPlayerState: {...s.audioPlayerState, isLoading: false} }));
-                
-              } catch (e: any) {
-                 if (e.name !== 'AbortError') {
-                   set(s => ({ fetchingSegmentIds: new Set([...s.fetchingSegmentIds].filter(id => id !== uniqueSegmentId)), audioPlayerState: {...s.audioPlayerState, isLoading: false, error: e.message}, segmentFetchErrors: new Map(s.segmentFetchErrors).set(uniqueSegmentId, e.message) }));
-                 }
-              } finally {
-                activeFetchControllers.delete(uniqueSegmentId);
-              }
+                await useApiKeyStore.getState().rotateActiveKey();
+                const apiKey = useApiKeyStore.getState().activeApiKey?.value;
+                if (!apiKey) {
+                  useToastStore.getState().showToast("API key not available for TTS.", "error");
+                  return;
+                }
+
+                const controller = new AbortController();
+                activeFetchControllers.set(uniqueSegmentId, controller);
+                set(s => ({ 
+                    fetchingSegmentIds: new Set(s.fetchingSegmentIds).add(uniqueSegmentId), 
+                    audioPlayerState: {...s.audioPlayerState, isLoading: true, currentMessageId: uniqueSegmentId, currentPlayingText: textSegment}
+                }));
+
+                try {
+                  const pcmData = await generateSpeech(apiKey, textSegment, ttsSettings, logApiRequest, controller.signal);
+                  if (controller.signal.aborted) throw new DOMException('Aborted');
+                  
+                  await dbService.setAudioBuffer(uniqueSegmentId, pcmData);
+                  
+                  // **START OF FIX**
+                  // Create the new message state, then persist it before updating UI state
+                  const sessionForUpdate = useActiveChatStore.getState().currentChatSession;
+                  if (sessionForUpdate) {
+                    const msgIndex = sessionForUpdate.messages.findIndex(m => m.id === baseMessageId);
+                    if (msgIndex !== -1) {
+                      const newMsgs = [...sessionForUpdate.messages];
+                      const oldMsg = newMsgs[msgIndex];
+                      const newBuffers = [...(oldMsg.cachedAudioBuffers || [])];
+                      newBuffers[partIndex] = pcmData;
+                      newMsgs[msgIndex] = {
+                        ...oldMsg,
+                        cachedAudioBuffers: newBuffers,
+                        cachedAudioSegmentCount: textSegments.length,
+                        ttsWordsPerSegmentCache: maxWordsForThisMessage,
+                      };
+                      
+                      // Persist to DB first
+                      await updateMessages(sessionForUpdate.id, newMsgs);
+                      
+                      // Then update the Zustand state
+                      await updateCurrentChatSession(s => s ? { ...s, messages: newMsgs } : null);
+                    }
+                  }
+                  // **END OF FIX**
+                  
+                  set(s => ({ 
+                      fetchingSegmentIds: new Set([...s.fetchingSegmentIds].filter(id => id !== uniqueSegmentId)),
+                  }));
+
+                  await startPlaybackInternal(pcmData, 0, textSegment, uniqueSegmentId);
+                } catch (e: any) {
+                   if (e.name !== 'AbortError') {
+                     set(s => ({ 
+                         fetchingSegmentIds: new Set([...s.fetchingSegmentIds].filter(id => id !== uniqueSegmentId)), 
+                         audioPlayerState: {...s.audioPlayerState, isLoading: false, error: e.message},
+                         segmentFetchErrors: new Map(s.segmentFetchErrors).set(uniqueSegmentId, e.message) 
+                     }));
+                   }
+                } finally {
+                  activeFetchControllers.delete(uniqueSegmentId);
+                }
             }
-        } else { // Main button logic
-          if (allPartsAreCached) {
-            await startPlaybackInternal(message.cachedAudioBuffers![0]!, 0, textSegments[0], targetSegmentId);
-          } else {
-            // Fetch all logic
-            const controller = new AbortController();
-            multiPartFetchControllers.set(baseMessageId, controller);
-            set(s => ({ activeMultiPartFetches: new Set(s.activeMultiPartFetches).add(baseMessageId) }));
-            const partsToFetchCount = textSegments.filter((_, idx) => !message.cachedAudioBuffers?.[idx]).length;
-            if (partsToFetchCount > 0) useToastStore.getState().showToast(`Fetching ${partsToFetchCount} audio part(s)...`, "success");
-  
-            try {
-              const fetchPromises = textSegments.map((segment, i) => {
-                if (message.cachedAudioBuffers?.[i]) return Promise.resolve(message.cachedAudioBuffers[i]);
-                return generateSpeech(apiKey!, segment, ttsSettings, logApiRequest, controller.signal);
-              });
-              const results = await Promise.all(fetchPromises);
-              if (controller.signal.aborted) return;
-              results.forEach((buffer, i) => { if(buffer) handleCacheAudioForMessageCallback(`${baseMessageId}_part_${i}`, buffer) });
-              useToastStore.getState().showToast("All audio parts fetched.", "success");
-              
-            } catch(e: any) {
-              if (e.name !== 'AbortError') {
-                useToastStore.getState().showToast(`Audio fetch failed: ${e.message}`, "error");
-              }
-            } finally {
-              multiPartFetchControllers.delete(baseMessageId);
-              set(s => ({ activeMultiPartFetches: new Set([...s.activeMultiPartFetches].filter(id => id !== baseMessageId)) }));
+        };
+
+        const playAllParts = async () => {
+            const allBuffers: (ArrayBuffer | null)[] = [];
+            
+            for (let i = 0; i < textSegments.length; i++) {
+                let buffer = message.cachedAudioBuffers?.[i] || null;
+                if (!buffer) {
+                    buffer = await dbService.getAudioBuffer(`${baseMessageId}_part_${i}`) || null;
+                }
+                allBuffers.push(buffer);
             }
-          }
+
+            if (allBuffers.every(b => b)) {
+                await playSinglePart(0);
+            } else {
+                const totalParts = textSegments.length;
+                const partsToFetchCount = allBuffers.filter(b => !b).length;
+                if (partsToFetchCount > 0) {
+                    if (totalParts > 1) {
+                        useToastStore.getState().showToast(`Fetching audio for ${totalParts} parts. Please wait until ready.`, "success", 3000);
+                    } else {
+                        useToastStore.getState().showToast(`Fetching audio, please wait...`, "success", 2000);
+                    }
+                }
+                const controller = new AbortController();
+                multiPartFetchControllers.set(baseMessageId, controller);
+                set(s => ({ activeMultiPartFetches: new Set(s.activeMultiPartFetches).add(baseMessageId) }));
+
+                await useApiKeyStore.getState().rotateActiveKey();
+                const apiKey = useApiKeyStore.getState().activeApiKey?.value;
+                if (!apiKey) {
+                  useToastStore.getState().showToast("API key not available for TTS.", "error");
+                  set(s => ({ activeMultiPartFetches: new Set([...s.activeMultiPartFetches].filter(id => id !== baseMessageId)) }));
+                  return;
+                }
+
+                try {
+                  const fetchPromises = textSegments.map((segment, i) => 
+                    allBuffers[i] ? Promise.resolve(allBuffers[i]) : generateSpeech(apiKey, segment, ttsSettings, logApiRequest, controller.signal)
+                  );
+                  
+                  const fetchedBuffers = await Promise.all(fetchPromises);
+                  if (controller.signal.aborted) return;
+                  
+                  const dbSavePromises: Promise<void>[] = [];
+                  for(let i=0; i<fetchedBuffers.length; i++) {
+                      if(fetchedBuffers[i] && !allBuffers[i]) {
+                          dbSavePromises.push(dbService.setAudioBuffer(`${baseMessageId}_part_${i}`, fetchedBuffers[i]!));
+                      }
+                  }
+                  await Promise.all(dbSavePromises);
+
+                  // **START OF FIX**
+                  const sessionForUpdate = useActiveChatStore.getState().currentChatSession;
+                  if (sessionForUpdate) {
+                    const msgIndex = sessionForUpdate.messages.findIndex(m => m.id === baseMessageId);
+                    if (msgIndex !== -1) {
+                      const newMsgs = [...sessionForUpdate.messages];
+                      newMsgs[msgIndex] = {
+                        ...newMsgs[msgIndex],
+                        cachedAudioBuffers: fetchedBuffers,
+                        cachedAudioSegmentCount: textSegments.length,
+                        ttsWordsPerSegmentCache: maxWordsForThisMessage
+                      };
+                      
+                      // Persist to DB first
+                      await updateMessages(sessionForUpdate.id, newMsgs);
+                      
+                      // Then update the Zustand state
+                      await updateCurrentChatSession(s => s ? { ...s, messages: newMsgs } : null);
+                    }
+                  }
+                  // **END OF FIX**
+                  
+                  useToastStore.getState().showToast("All audio parts ready. Click play.", "success");
+                } catch(e: any) {
+                  if (e.name !== 'AbortError') {
+                    useToastStore.getState().showToast(`Audio fetch failed: ${e.message}`, "error");
+                  }
+                } finally {
+                  multiPartFetchControllers.delete(baseMessageId);
+                  set(s => ({ activeMultiPartFetches: new Set([...s.activeMultiPartFetches].filter(id => id !== baseMessageId)) }));
+                }
+            }
+        };
+
+        if (partIndexToPlay !== undefined) {
+            await playSinglePart(partIndexToPlay);
+        } else {
+            await playAllParts();
         }
     },
     handleStopAndCancelAllForCurrentAudio: () => {
@@ -378,12 +427,24 @@ export const useAudioStore = create<AudioState & AudioActions>((set, get) => {
     handleDownloadAudio: async (messageId, userProvidedName) => {
       const chat = useActiveChatStore.getState().currentChatSession;
       const message = chat?.messages.find(m => m.id === messageId);
-      if (!chat || !message || !message.cachedAudioBuffers?.every(b => !!b)) {
+      if (!chat || !message || !message.cachedAudioSegmentCount) {
         useToastStore.getState().showToast("Audio not fully ready for download.", "error");
         return;
       }
+
+      const buffers: ArrayBuffer[] = [];
+      for(let i = 0; i < message.cachedAudioSegmentCount; i++) {
+          const buffer = await dbService.getAudioBuffer(`${messageId}_part_${i}`);
+          if (buffer) {
+              buffers.push(buffer);
+          } else {
+              useToastStore.getState().showToast(`Could not retrieve audio part ${i+1} for download.`, "error");
+              return;
+          }
+      }
+
       const finalFilename = `${sanitizeFilename(userProvidedName || 'audio', 100)}.mp3`;
-      const combinedPcm = audioUtils.concatenateAudioBuffers(message.cachedAudioBuffers as ArrayBuffer[]);
+      const combinedPcm = audioUtils.concatenateAudioBuffers(buffers);
       if (combinedPcm.byteLength === 0) return;
       const audioBlob = audioUtils.createAudioFileFromPcm(combinedPcm, 'audio/mpeg');
       triggerDownload(audioBlob, finalFilename);
@@ -395,18 +456,43 @@ export const useAudioStore = create<AudioState & AudioActions>((set, get) => {
       useModalStore.getState().requestResetAudioCacheConfirmation(chat.id, messageId);
     },
     handleResetAudioCacheForMultipleMessages: async (messageIds) => {
-      const { updateCurrentChatSession } = useActiveChatStore.getState();
-      if (!updateCurrentChatSession) return;
+      const { updateCurrentChatSession, currentChatSession } = useActiveChatStore.getState();
+      const { updateMessages } = useDataStore.getState();
+      if (!currentChatSession) return;
 
-      const anyPlaying = messageIds.some(id => get().audioPlayerState.currentMessageId?.startsWith(id));
+      const idSet = new Set(messageIds);
+      const messagesToReset = currentChatSession.messages.filter(m => idSet.has(m.id));
+
+      const anyPlaying = messagesToReset.some(m => get().audioPlayerState.currentMessageId?.startsWith(m.id));
       if (anyPlaying) get().handleStopAndCancelAllForCurrentAudio();
+
+      const deletePromises: Promise<void>[] = [];
+      messagesToReset.forEach(msg => {
+        if(msg.cachedAudioSegmentCount) {
+            for(let i=0; i<msg.cachedAudioSegmentCount; i++) {
+                deletePromises.push(dbService.deleteAudioBuffer(`${msg.id}_part_${i}`));
+            }
+        }
+      });
+      await Promise.all(deletePromises);
 
       await updateCurrentChatSession(session => {
           if (!session) return null;
-          const idSet = new Set(messageIds);
-          const newMessages = session.messages.map(m => idSet.has(m.id) ? { ...m, cachedAudioBuffers: null } : m );
-          return { ...session, messages: newMessages };
+          const newMessages = session.messages.map(m => {
+            if (idSet.has(m.id)) {
+                const { cachedAudioBuffers, cachedAudioSegmentCount, ttsWordsPerSegmentCache, ...rest } = m;
+                return rest;
+            }
+            return m;
+          });
+          return { ...session, messages: newMessages as ChatMessage[] };
       });
+
+      const updatedSession = useActiveChatStore.getState().currentChatSession;
+      if (updatedSession) {
+        await updateMessages(updatedSession.id, updatedSession.messages);
+      }
+
       useToastStore.getState().showToast(`Audio cache reset for ${messageIds.length} message(s).`, "success");
       useSelectionStore.getState().toggleSelectionMode();
     },
